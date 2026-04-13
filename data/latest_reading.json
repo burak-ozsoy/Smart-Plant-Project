@@ -1,0 +1,8 @@
+{
+  "plant_id": "plant_1",
+  "temperature": 28.6,
+  "humidity": 51.8,
+  "soil_moisture": 68,
+  "light_level": 785,
+  "timestamp": "2026-04-13T14:19:40.746511"
+}
