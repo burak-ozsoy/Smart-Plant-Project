@@ -2,8 +2,8 @@
 
 
 Actuator::Actuator(){
-    this->as = new ActuatorState{false , false , false};
-    this->pin = new Pins();
+    if(this->as == nullptr) this->as = new ActuatorState{false , false , false};
+    if(this->pin == nullptr) this->pin = new Pins();
 }
 
 void Actuator::control_actuators(){
@@ -73,6 +73,15 @@ void Actuator::control_actuators(){
 
 void Actuator::call_control_actuators(){
     control_actuators();
+}
+
+void Actuator::activate_actuators(const std::unordered_map<const char* , bool>& um){
+    if(as == nullptr){
+        this->as = new ActuatorState();
+    }
+    as->fanOn = (um.at("fanOn"))? true : false;
+    as->pumpOn = (um.at("pumpOn"))? true : false;
+    as->growLightOn = (um.at("growLightOn"))? true : false;
 }
 
 void Actuator::printStatus(){

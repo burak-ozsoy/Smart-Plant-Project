@@ -4,6 +4,7 @@
 #pragma once
 #include "Sensor.hpp"
 #include <Arduino.h>
+#include <unordered_map>
 
 class Actuator {
 private:
@@ -20,12 +21,15 @@ private:
     };
     ActuatorState* as = nullptr;
     void control_actuators();
+    void activate_actuators(const std::unordered_map<const char* , bool>&);
 public:
     Pins* pin = nullptr;
     Actuator();
     void call_control_actuators();
     void printStatus();
     ~Actuator();
+
+    friend class JSON_Transfer;
 };
 
 #endif

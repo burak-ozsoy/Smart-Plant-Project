@@ -2,7 +2,7 @@
 
 
 JSON_Transfer::JSON_Transfer(){
-    this->j = new JSON();
+    if(this->j == nullptr) this->j = new JSON();
     (*j)["Publisher"] = "ESP32";
     (*j)["Subscriber"] = "Raspberry PI";
 }
@@ -25,6 +25,14 @@ void JSON_Transfer::write_sensor_data(){
     }
     (*j)["sensor_data"] = sensor_data;
     data.clear();
+    delete s;
+}
+
+void JSON_Transfer::write_actuator_data(){
+    Actuator* act = new Actuator();
+    (*j)["fanOn"] = (act->as == nullptr)? "NaN" : std::to_string(act->as->fanOn);
+    (*j)["growLightOn"] = (act->as == nullptr)? "NaN" : std::to_string(act->as->growLightOn);
+    (*j)["pumpOn"] = (act->as == nullptr)? "NaN" : std::to_string(act->as->pumpOn);
 }
 
 void JSON_Transfer::write_time(){
@@ -42,8 +50,7 @@ void JSON_Transfer::write_time(){
 void JSON_Transfer::Wifi::set(){
     this->ssid = "";
     this->pwd = "";
-    this->raspberry_ip = "192.168.64.6";
-
+    this->raspberry_ip = "";
     WiFi.begin(ssid, pwd);
     unsigned long wifiStart = millis();
     while(WiFi.status() != WL_CONNECTED && millis() - wifiStart < 10000){
@@ -57,7 +64,6 @@ void JSON_Transfer::Wifi::set(){
 void JSON_Transfer::send_json_to_raspberry(const JSON& j){
 
     Wifi wifi;
-    wifi.set();
 
     auto start = std::chrono::steady_clock::now();
     while(!wifi.client.connected() &&
@@ -72,7 +78,7 @@ void JSON_Transfer::send_json_to_raspberry(const JSON& j){
     wifi.client.loop();
 
     std::string dumped_json = j.dump(4);
-    wifi.client.publish("ESP32_DATA" , dumped_json.c_str());
+    wifi.client.publish("ESP32_SENDING" , dumped_json.c_str());
     dumped_json.clear();
     delay(5000);
 }
@@ -80,10 +86,38 @@ void JSON_Transfer::send_json_to_raspberry(const JSON& j){
 void JSON_Transfer::send(){
     
     write_sensor_data();
+    write_actuator_data();
     write_time();
+    (*j)["ip_addr"] = "";
     if(this->j != nullptr){
         send_json_to_raspberry(*this->j);
     }
+}
+
+void JSON_Transfer::receive_and_apply(char* msg_topic , byte* msg , uint32_t len){
+    
+     Wifi wifi;
+     
+     if(WiFi.status() != WL_CONNECTED){
+        return;
+     }
+
+     if(msg_topic == nullptr || !std::string(msg_topic).compare("ESP32_RECEIVING")){
+        return;
+     }
+
+    try {
+        JSON rcvd = JSON::parse(std::string(reinterpret_cast<char*>(msg) , len));
+        if(rcvd.contains("topic") && rcvd["topic"].get<std::string>() == "actuator_request"){
+            std::unordered_map<const char* , bool> actuator_requests = {{"pumpOn" , rcvd["pumpOn"].get<bool>()} , 
+                                                                        {"growLightOn" , rcvd["growLightOn"].get<bool>()} , 
+                                                                        {"fanOn" , rcvd["fanOn"].get<bool>()}};
+            Actuator* act = new Actuator();
+            act->activate_actuators(actuator_requests);
+            actuator_requests.clear();
+            delete act;
+        }
+    } catch(...){}
 }
 
 JSON_Transfer::~JSON_Transfer(){

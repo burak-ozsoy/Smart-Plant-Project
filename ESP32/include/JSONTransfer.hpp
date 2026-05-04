@@ -3,6 +3,7 @@
 
 #pragma once
 #include "Sensor.hpp"
+#include "Actuator.hpp"
 #include <nlohmann/json.hpp>
 #include <WiFi.h>
 #include <PubSubClient.h>
@@ -21,6 +22,8 @@ using JSON = nlohmann::json;
 class JSON_Transfer {
 private:
     void write_sensor_data();
+    void write_actuator_data();
+    void receive_and_apply(char* msg_topic , byte* msg , uint32_t len);
     void send_json_to_raspberry(const JSON&);
     JSON* j = nullptr;
 protected:
@@ -34,6 +37,7 @@ protected:
         PubSubClient client{esp};
 
         void set();
+        Wifi(){set();}
     };
 public:
     JSON_Transfer();

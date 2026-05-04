@@ -26,8 +26,6 @@ std::unordered_map<std::string , std::string> Sensor::read_sensors(){
         }
     };
     
-    
-
     auto get_humidity = [this]() -> float{
         sd->humidity = INVALID_FLOAT;
         try {
