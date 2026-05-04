@@ -43,6 +43,7 @@ public:
     JSON_Transfer();
     void write_time();
     void send();
+    void receive();
     ~JSON_Transfer();
 };
 

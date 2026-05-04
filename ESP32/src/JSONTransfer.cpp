@@ -120,6 +120,10 @@ void JSON_Transfer::receive_and_apply(char* msg_topic , byte* msg , uint32_t len
     } catch(...){}
 }
 
+void JSON_Transfer::receive(){
+    return;
+}
+
 JSON_Transfer::~JSON_Transfer(){
     delete j;
 }

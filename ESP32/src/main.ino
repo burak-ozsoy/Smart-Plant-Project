@@ -17,6 +17,8 @@
 #include "JSONTransfer.hpp"
 #include "Sensor.hpp"
 #include "Actuator.hpp"
+#include <thread>
+#include <chrono>
 
 #define READ_INTERVAL 2000
 #define PRINT_INTERVAL 3000
@@ -45,18 +47,42 @@ void setup() {
     digitalWrite(actuator->pin->GROW_LIGHT_PIN, LOW);
     digitalWrite(actuator->pin->FAN_RELAY_PIN, LOW);
   }
+
+  if(jt == nullptr){
+    jt = new JSON_Transfer();
+  }
+
+  auto send_json = [](JSON_Transfer* jt_ptr) -> void{
+    while(true){
+      jt_ptr->send();
+      std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+    }
+  };
+
+  auto receive_json = [](JSON_Transfer* jt_ptr) -> void{
+    while(true){
+      jt_ptr->receive();
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+  };
+
+  std::thread t1(send_json , jt);
+  std::thread t2(receive_json , jt);
+  t1.detach(); t2.detach();
+
 }
 
 uint64_t lastReadTime = 0;
 uint64_t lastPrintTime = 0;
 
+std::thread t1(&JSON_Transfer::send , jt);
+std::thread t2(&JSON_Transfer::receive , jt);
 void loop() {
   uint64_t currentTime = millis();
   
   if (currentTime - lastReadTime >= READ_INTERVAL) {
     lastReadTime = currentTime;
-    jt->send();
-    
+
     if(sensor->sd->isValid) {
       actuator->call_control_actuators();
       sensor->sd->isValid = false;
