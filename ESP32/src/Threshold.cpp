@@ -1,7 +1,7 @@
 #include "Threshold.hpp"
 
 Threshold::Threshold(){
-    this->thres = new PlantThresholds();
+    if(this->thres == nullptr) this->thres = new PlantThresholds();
 }
 
 void Threshold::printThresholds() {

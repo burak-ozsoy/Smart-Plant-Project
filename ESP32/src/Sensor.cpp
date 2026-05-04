@@ -2,9 +2,9 @@
 
 
 Sensor::Sensor(){
-    this->pin = new Pins();
-    this->sd = new SensorData();
-    this->dht = new DHT(pin->DHT_PIN , DHT_TYPE);
+    if(this->pin == nullptr) this->pin = new Pins();
+    if(this->sd == nullptr) this->sd = new SensorData();
+    if(this->dht == nullptr) this->dht = new DHT(pin->DHT_PIN , DHT_TYPE);
 }
 
 void Sensor::begin_dht(){
@@ -15,6 +15,10 @@ void Sensor::begin_dht(){
 
 std::unordered_map<std::string , std::string> Sensor::read_sensors(){
     std::unordered_map<std::string , std::string> data_table;
+
+    if(sd == nullptr){
+        sd = new SensorData();
+    }
     auto get_temperature = [this]() -> float{
         sd->temperature = INVALID_FLOAT;
         try {
@@ -88,5 +92,5 @@ void Sensor::printStatus(){
 Sensor::~Sensor(){
     if(pin != nullptr) delete pin;
     if(sd != nullptr) delete sd;
-   if(dht != nullptr) delete dht;
+    if(dht != nullptr) delete dht;
 }
