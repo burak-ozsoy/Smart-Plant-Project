@@ -1,5 +1,8 @@
 Before building the ESP32 project, follow the steps given below:
 
+#Prerequisities
+  - Install platformio extension(preferred)/application
+
 1) Add a new directory named nlohmann under include file: mkdir include\nlohmann
 
 2) On the projects root directory, open Powershell and run the command:
