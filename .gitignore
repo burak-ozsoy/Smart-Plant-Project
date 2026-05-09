@@ -9,8 +9,5 @@ ESP32/include/nlohmann/
 
 #For MQTT folder
 MQTT/.env
-MQTT/.env.*
-MQTT/firebase-adminsdk*.json
-MQTT/service-account*.json
 
 .DS_Store
