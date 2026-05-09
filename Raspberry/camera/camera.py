@@ -1,1 +1,1 @@
-from firebase.to_firestore import FirebaseClient
+from firebase.send_to_firestore import FirebaseClient
