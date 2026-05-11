@@ -1,7 +1,9 @@
 #ifndef THRESHOLD_HPP
-#define THERESHOLD_HPP
+#define THRESHOLD_HPP
 
-#include <Arduino.h>
+#include <cstdio>
+#include <new>
+#include "esp_log.h"
 
 class Threshold {
 private:
@@ -12,14 +14,14 @@ private:
         const uint8_t soilMoistureVals[2] = {30 , 70};   
         const uint8_t lightVals[2] = {30 , 80};                
     };
-public:
     PlantThresholds* thres = nullptr;
+public:
     Threshold();
     void printThresholds();
     ~Threshold();
 
     friend class Sensor;
-    friend class Actuators;
+    friend class Actuator;
 };
 
 #endif

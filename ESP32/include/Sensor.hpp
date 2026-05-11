@@ -1,47 +1,77 @@
 #ifndef SENSOR_DATA_H
 #define SENSOR_DATA_H
 
-#include <Arduino.h>
-#include <DHT.h>
+#pragma once
+#include "Threshold.hpp"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "rom/ets_sys.h"
+#include "driver/gpio.h"
+#include "esp_adc/adc_oneshot.h"
+#include "esp_log.h"
+
 #include <unordered_map>
 #include <memory>
 #include <string>
 
-#include <Threshold.hpp>
-
-#define DHT_TYPE DHT22
 #define INVALID_FLOAT -1000.0F
 #define INVALID_UINT8_T ((uint8_t)UINT8_MAX)
+#define SENSOR_READ_PERIOD_MS 2000
 
 
 class Sensor {
 private:
     struct Pins {
-        static constexpr uint8_t DHT_PIN = 4;
-        static constexpr uint8_t SOIL_MOISTURE_PIN = 34; // ADC1_CH6
-        static constexpr uint8_t LIGHT_SENSOR_PIN = 35;  // ADC1_CH7
+        static constexpr gpio_num_t DHT_GPIO = GPIO_NUM_4;
+        static constexpr adc_channel_t SOIL_MOISTURE_ADC = ADC_CHANNEL_6; // GPIO34
+        static constexpr adc_channel_t LIGHT_SENSOR_ADC = ADC_CHANNEL_7;  // GPIO35
+        Pins();
     };
+    Pins* pin = nullptr;
 
     struct SensorData {
-        float temperature;
-        float humidity;
-        uint8_t soilMoisture;   
-        uint8_t lightLevel;
-        bool isValid;
+        float temperature = INVALID_FLOAT;
+        float humidity = INVALID_FLOAT;
+        uint8_t soilMoisture = INVALID_UINT8_T;
+        uint8_t lightLevel = INVALID_UINT8_T;
     };
-
-    DHT* dht = nullptr;
-    std::unordered_map<std::string , std::string> read_sensors();
-public:
-    Pins* pin = nullptr;
     SensorData* sd = nullptr;
 
+    struct DHT {
+        public:
+            int32_t dht_wait_for_level(uint32_t , uint16_t, Pins*);
+            const uint16_t dht_start_signal_ms = 20;
+            const uint16_t dht_timeout_us = 100;
+            bool dht22_read(Pins*);
+            uint8_t* get_data(){ return data;}
+            DHT() : data(nullptr) {}
+            ~DHT(){ if(data != nullptr) delete[] data;}
+            private:
+                uint8_t* data;
+                static portMUX_TYPE dht_spinlock;
+            friend class Sensor;
+    };
+    DHT* dht = nullptr;
+
+    struct ADC {
+        adc_oneshot_unit_handle_t handle = nullptr;
+        ADC(adc_channel_t ch1, adc_channel_t ch2);
+        int32_t read_percent(adc_channel_t channel);
+        ~ADC(){ if(handle != nullptr) adc_oneshot_del_unit(handle); }
+    };
+    ADC* adc = nullptr;
+
+    std::unordered_map<std::string , std::string> read_sensors();
+    void delete_ptrs();
+public:
+    static constexpr const char* CLASS_TAG = "Sensor";
+
     Sensor();
-    void begin_dht();
     void printStatus();
+    bool is_initialized();
     ~Sensor();
 
-    friend class Actuators;
+    friend class Actuator;
     friend class JSON_Transfer;
 };
 
