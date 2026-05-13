@@ -1,16 +1,14 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  collection,
-  query,
-  where,
-  getDocs,
-} from "firebase/firestore";
+import { collection, query, where, getDocs } from "firebase/firestore";
 import { signOut } from "firebase/auth";
 
 import { auth, db } from "../firebase";
+import { useAuth } from "../context/AuthContext";
 
-function DeviceList({ currentUser, setCurrentUser }) {
+function DeviceList() {
+  const { currentUser } = useAuth();
+
   const [devices, setDevices] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -18,7 +16,6 @@ function DeviceList({ currentUser, setCurrentUser }) {
 
   useEffect(() => {
     if (!currentUser) {
-      navigate("/login");
       return;
     }
 
@@ -27,6 +24,8 @@ function DeviceList({ currentUser, setCurrentUser }) {
 
   const getUserDevices = async (uid) => {
     try {
+      setLoading(true);
+
       const devicesRef = collection(db, "devices");
 
       const q = query(devicesRef, where("ownerId", "==", uid));
@@ -53,13 +52,13 @@ function DeviceList({ currentUser, setCurrentUser }) {
     try {
       await signOut(auth);
 
-      setCurrentUser(null);
       setDevices([]);
 
       alert("Logout successful");
       navigate("/login");
     } catch (error) {
       console.error(error.message);
+      alert(error.message);
     }
   };
 

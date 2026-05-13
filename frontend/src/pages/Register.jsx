@@ -1,18 +1,19 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { signInWithEmailAndPassword } from "firebase/auth";
+import { doc, setDoc, serverTimestamp } from "firebase/firestore";
+import { createUserWithEmailAndPassword } from "firebase/auth";
 
-import { auth } from "../firebase";
+import { auth, db } from "../firebase";
 
-function Login() {
+function Register() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
   const navigate = useNavigate();
 
-  const login = async () => {
+  const register = async () => {
     try {
-      const userCredential = await signInWithEmailAndPassword(
+      const userCredential = await createUserWithEmailAndPassword(
         auth,
         email,
         password
@@ -20,12 +21,13 @@ function Login() {
 
       const user = userCredential.user;
 
-      console.log("LOGIN UID:", user.uid);
+      await setDoc(doc(db, "users", user.uid), {
+        email: user.email,
+        role: "owner",
+        createdAt: serverTimestamp(),
+      });
 
-      const token = await user.getIdToken();
-      console.log("TOKEN:", token);
-
-      alert("Login successful");
+      alert("Register successful");
       navigate("/devices");
     } catch (error) {
       console.error(error.message);
@@ -35,7 +37,7 @@ function Login() {
 
   return (
     <div style={{ padding: "40px" }}>
-      <h1>Smart Plant Login</h1>
+      <h1>Smart Plant Register</h1>
 
       <input
         type="email"
@@ -57,13 +59,13 @@ function Login() {
       <br />
       <br />
 
-      <button onClick={login}>Login</button>
+      <button onClick={register}>Register</button>
 
       <p style={{ marginTop: "20px" }}>
-        Don't have an account? <Link to="/register">Register</Link>
+        Already have an account? <Link to="/login">Login</Link>
       </p>
     </div>
   );
 }
 
-export default Login;
+export default Register;

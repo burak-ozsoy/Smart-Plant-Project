@@ -3,8 +3,11 @@ import { useNavigate, useParams } from "react-router-dom";
 import { doc, getDoc } from "firebase/firestore";
 
 import { db } from "../firebase";
+import { useAuth } from "../context/AuthContext";
 
-function DeviceDetail({ currentUser }) {
+function DeviceDetail() {
+  const { currentUser } = useAuth();
+
   const [device, setDevice] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -13,7 +16,6 @@ function DeviceDetail({ currentUser }) {
 
   useEffect(() => {
     if (!currentUser) {
-      navigate("/login");
       return;
     }
 
@@ -22,6 +24,8 @@ function DeviceDetail({ currentUser }) {
 
   const getDeviceDetail = async () => {
     try {
+      setLoading(true);
+
       const deviceRef = doc(db, "devices", deviceId);
       const deviceSnap = await getDoc(deviceRef);
 

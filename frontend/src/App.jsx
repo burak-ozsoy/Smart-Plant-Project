@@ -1,32 +1,41 @@
 import { Routes, Route, Navigate } from "react-router-dom";
-import { useState } from "react";
+
+import { AuthProvider } from "./context/AuthContext";
+import ProtectedRoute from "./components/ProtectedRoute";
 
 import Login from "./pages/Login";
+import Register from "./pages/Register";
 import DeviceList from "./pages/DeviceList";
 import DeviceDetail from "./pages/DeviceDetail";
 
 function App() {
-  const [currentUser, setCurrentUser] = useState(null);
-
   return (
-    <Routes>
-      <Route path="/" element={<Navigate to="/login" />} />
+    <AuthProvider>
+      <Routes>
+        <Route path="/" element={<Navigate to="/devices" replace />} />
 
-      <Route
-        path="/login"
-        element={<Login setCurrentUser={setCurrentUser} />}
-      />
+        <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
 
-      <Route
-        path="/devices"
-        element={<DeviceList currentUser={currentUser} setCurrentUser={setCurrentUser} />}
-      />
+        <Route
+          path="/devices"
+          element={
+            <ProtectedRoute>
+              <DeviceList />
+            </ProtectedRoute>
+          }
+        />
 
-      <Route
-        path="/devices/:deviceId"
-        element={<DeviceDetail currentUser={currentUser} />}
-      />
-    </Routes>
+        <Route
+          path="/devices/:deviceId"
+          element={
+            <ProtectedRoute>
+              <DeviceDetail />
+            </ProtectedRoute>
+          }
+        />
+      </Routes>
+    </AuthProvider>
   );
 }
 
