@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, onSnapshot } from "firebase/firestore";
 
 import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
@@ -9,6 +9,7 @@ function DeviceDetail() {
   const { currentUser } = useAuth();
 
   const [device, setDevice] = useState(null);
+  const [latestData, setLatestData] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const { deviceId } = useParams();
@@ -19,41 +20,87 @@ function DeviceDetail() {
       return;
     }
 
+    let unsubscribeLatestData = null;
+    let isMounted = true;
+
+    const getDeviceDetail = async () => {
+      try {
+        setLoading(true);
+
+        const deviceRef = doc(db, "devices", deviceId);
+        const deviceSnap = await getDoc(deviceRef);
+
+        if (!deviceSnap.exists()) {
+          alert("Device not found");
+          navigate("/devices");
+          return;
+        }
+
+        const deviceData = {
+          id: deviceSnap.id,
+          ...deviceSnap.data(),
+        };
+
+        if (deviceData.ownerId !== currentUser.uid) {
+          alert("You do not have permission to view this device");
+          navigate("/devices");
+          return;
+        }
+
+        if (!isMounted) {
+          return;
+        }
+
+        setDevice(deviceData);
+
+        const latestDataRef = doc(db, "latestDeviceState", deviceId);
+
+        unsubscribeLatestData = onSnapshot(
+          latestDataRef,
+          (latestDataSnap) => {
+            if (latestDataSnap.exists()) {
+              setLatestData(latestDataSnap.data());
+            } else {
+              setLatestData(deviceData.latestData || null);
+            }
+          },
+          (error) => {
+            console.error("Latest sensor data listener error:", error.message);
+          }
+        );
+
+        console.log("DEVICE DETAIL:", deviceData);
+      } catch (error) {
+        console.error("Device detail error:", error.message);
+        alert(error.message);
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    };
+
     getDeviceDetail();
-  }, [currentUser, deviceId]);
 
-  const getDeviceDetail = async () => {
-    try {
-      setLoading(true);
+    return () => {
+      isMounted = false;
 
-      const deviceRef = doc(db, "devices", deviceId);
-      const deviceSnap = await getDoc(deviceRef);
-
-      if (!deviceSnap.exists()) {
-        alert("Device not found");
-        navigate("/devices");
-        return;
+      if (unsubscribeLatestData) {
+        unsubscribeLatestData();
       }
+    };
+  }, [currentUser, deviceId, navigate]);
 
-      const deviceData = {
-        id: deviceSnap.id,
-        ...deviceSnap.data(),
-      };
-
-      if (deviceData.ownerId !== currentUser.uid) {
-        alert("You do not have permission to view this device");
-        navigate("/devices");
-        return;
-      }
-
-      setDevice(deviceData);
-      console.log("DEVICE DETAIL:", deviceData);
-    } catch (error) {
-      console.error("Device detail error:", error.message);
-      alert(error.message);
-    } finally {
-      setLoading(false);
+  const formatTimestamp = (timestamp) => {
+    if (!timestamp) {
+      return "N/A";
     }
+
+    if (typeof timestamp.toDate === "function") {
+      return timestamp.toDate().toLocaleString();
+    }
+
+    return String(timestamp);
   };
 
   if (loading) {
@@ -82,19 +129,23 @@ function DeviceDetail() {
 
       <h2>Latest Sensor Data</h2>
 
-      {device.latestData ? (
+      {latestData ? (
         <div>
           <p>
-            <strong>Temperature:</strong> {device.latestData.temperature} °C
+            <strong>Temperature:</strong> {latestData.temperature} °C
           </p>
           <p>
-            <strong>Humidity:</strong> {device.latestData.humidity} %
+            <strong>Humidity:</strong> {latestData.humidity} %
           </p>
           <p>
-            <strong>Soil Moisture:</strong> {device.latestData.soilMoisture} %
+            <strong>Soil Moisture:</strong> {latestData.soilMoisture} %
           </p>
           <p>
-            <strong>Light Level:</strong> {device.latestData.lightLevel}
+            <strong>Light Level:</strong> {latestData.lightLevel}
+          </p>
+          <p>
+            <strong>Last Updated:</strong>{" "}
+            {formatTimestamp(latestData.lastUpdated || latestData.updatedAt)}
           </p>
         </div>
       ) : (
