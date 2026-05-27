@@ -53,6 +53,6 @@ async function sendMockData() {
   }
 }
 
-setInterval(sendMockData, 5000);
+setInterval(sendMockData, 15000);
 
 sendMockData();
