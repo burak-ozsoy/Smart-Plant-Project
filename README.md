@@ -2,6 +2,15 @@
 
 This is the React + Vite frontend for the Smart Indoor Plant Monitoring System.
 
+## Current Status
+
+- Firebase Authentication is implemented with email/password login and register.
+- Auth state is managed globally using `AuthContext` and `onAuthStateChanged`.
+- Protected routes are used for authenticated pages.
+- Logged-in users can view their assigned devices.
+- Users can open a device detail page and view the latest sensor data.
+- Page refresh keeps the user logged in.
+
 ## Current Features
 
 - Firebase Authentication with email/password
