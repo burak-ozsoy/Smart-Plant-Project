@@ -15,7 +15,6 @@ get_sudo_password() {
         read -s -p "$(echo -e "${BLUE}[sudo]${RESET} Enter sudo password: ")" SUDO_PASS
         echo ""
 
-        # Şifreyi doğrula
         if echo "$SUDO_PASS" | sudo -S true 2>/dev/null; then
             echo -e "${GREEN}SUCCESS:${RESET} Password accepted"
             break
@@ -144,7 +143,7 @@ else
                 file_not_found=true
             fi
         elif [ "$folder" = "firebase" ]; then
-            if [ f "$dir/$folder/send_to_firestore.py" ]; then
+            if [ -f "$dir/$folder/send_to_firestore.py" ]; then
                 echo -e "${GREEN}SUCCESS:${RESET} send_to_firestore.py exists under ${dir}/${folder} directory"
             else
                 echo -e "${RED}ERROR:${RESET} send_to_firestore.py does not exists under ${dir}/${folder} directory"
