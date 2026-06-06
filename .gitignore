@@ -13,3 +13,4 @@ MQTT/firebase-adminsdk*.json
 MQTT/service-account*.json
 
 .DS_Store
+.env
