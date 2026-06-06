@@ -4,9 +4,9 @@ import os
 import json
 import threading
 import time
-# import asyncio    # WebSocket devre dışı
-# import websockets  # WebSocket devre dışı
-#from dotenv import load_dotenv , find_dotenv
+# import asyncio
+# import websockets
+from dotenv import load_dotenv , find_dotenv
 from uuid import getnode
 from firebase.send_to_firestore import FirebaseClient
 
@@ -50,6 +50,10 @@ class MQTT_Broker:
         self.mqtt_client.connect(self.mqtt_host, self.mqtt_port)
         self.mqtt_client.loop_start()
 
+        self.sensor_buffer = []
+        self.avg_interval = 60
+        self._start_avg_thread()
+
     def on_connect(self, client, userdata, flags, rc):
         if rc == 0:
             print(f"{self.tag}: Connected to MQTT broker {self.mqtt_host}:{self.mqtt_port}")
@@ -91,16 +95,9 @@ class MQTT_Broker:
                 parsed["device"] = self.device
                 parsed["received_at"] = time.strftime("%Y-%m-%d - %H-%M-%S")
                 self.sensor_data = parsed
+                self.sensor_buffer.append(parsed.copy())
                 is_new = self.different_from_latest_json("ESP32")
                 if is_new:
-                    try:
-                        res = self.firebase_client.send_sensor_data_to_firestore(parsed)
-                        if res.get('ok'):
-                            print(f"{self.tag}: The data is transferred to Firestore. ID: {res.get('id')}")
-                        else:
-                            print(f"{self.tag} Error: {res.get('error')}")
-                    except Exception as e:
-                        print(f"{self.tag}: Firebase send failed - {e} on is_received_new_json method"); time.sleep(10);
                     self.log_json("ESP32")
                     return True
                 else:
@@ -109,6 +106,56 @@ class MQTT_Broker:
         else:
             return False
     
+    def _start_avg_thread(self):
+        def _loop():
+            while True:
+                time.sleep(self.avg_interval)
+                self._flush_average()
+        t = threading.Thread(target=_loop, daemon=True)
+        t.start()
+
+    def _calculate_average(self, buffer):
+        sensor_sums = {}
+        sensor_counts = {}
+        sensor_meta = {}
+
+        for entry in buffer:
+            for item in entry.get("sensor_data", []):
+                name = item.get("data")
+                value = item.get("value")
+                if name and value is not None:
+                    try:
+                        sensor_sums[name] = sensor_sums.get(name, 0.0) + float(value)
+                        sensor_counts[name] = sensor_counts.get(name, 0) + 1
+                        sensor_meta[name] = item
+                    except (ValueError, TypeError):
+                        pass
+
+        result = buffer[-1].copy()
+        result["sensor_data"] = [
+            {**sensor_meta[name], "value": str(round(sensor_sums[name] / sensor_counts[name], 2))}
+            for name in sensor_sums
+        ]
+        result["received_at"] = time.strftime("%Y-%m-%d - %H-%M-%S")
+        result["sample_count"] = len(buffer)
+        return result
+
+    def _flush_average(self):
+        with self.lock:
+            if not self.sensor_buffer:
+                return
+            averaged = self._calculate_average(self.sensor_buffer)
+            self.sensor_buffer.clear()
+
+        try:
+            res = self.firebase_client.send_sensor_data_to_firestore(averaged)
+            if res.get('ok'):
+                print(f"{self.tag}: Averaged data ({averaged['sample_count']} samples) sent to Firestore. ID: {res.get('id')}")
+            else:
+                print(f"{self.tag}: Firestore error - {res.get('error')}")
+        except Exception as e:
+            print(f"{self.tag}: Firebase send failed - {e}")
+
     def different_from_latest_json(self , publisher) -> bool:
         dir_path = None
         check = None
@@ -127,7 +174,6 @@ class MQTT_Broker:
         os.makedirs(dir_path, exist_ok=True)
         latest_path = os.path.join(dir_path, "latest.json")
 
-        # Exclude volatile metadata fields before comparing
         dont_check = {"generated_at", "ts", "iso", "device"}
         def _strip(d):
             return {k: v for k, v in d.items() if k not in dont_check} if isinstance(d, dict) else d
@@ -180,7 +226,6 @@ class MQTT_Broker:
             return False
     
     
-    # --- WebSocket & web publish devre dışı ---
     # def publish_data_from_website(self, payload, topic="actuator_data"):
     #     if not self._sending:
     #         print(f"{self.tag}: Sending mode is disabled")
@@ -235,15 +280,11 @@ class MQTT_Broker:
     #     t = threading.Thread(target=run_ws, daemon=True)
     #     t.start()
     #     return t
-    # --- WebSocket & web publish devre dışı ---
 
     def run(self):
-        
-        # --- WebSocket devre dışı ---
         # ws_host = os.getenv("WS_HOST")
         # ws_port = int(os.getenv("WS_PORT" , 8765))
         # self.start_websocket_server(host=ws_host, port=ws_port)
-        # --- WebSocket devre dışı ---
 
         print(f"{self.tag}: MQTT broker helper running. Subscribed to 'sensor_data_from/#'. Ready to publish website messages to 'actuator_data'.")
         try:

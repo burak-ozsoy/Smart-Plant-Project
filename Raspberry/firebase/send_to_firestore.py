@@ -1,4 +1,3 @@
-# ...existing code...
 import os
 import time
 import datetime
@@ -23,17 +22,14 @@ class FirebaseClient:
         self.timeout = timeout
 
         if credentials_path:
-            # set environment variable so google client kullanabilir
             os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = credentials_path
 
-        # init client (project optional)
         if project:
             self.client = firestore.Client(project=project)
         else:
             self.client = firestore.Client()
 
     def _collection(self) -> "firestore.CollectionReference":
-        # top-level collection to store readings
         return self.client.collection(self.base_path)
 
     def send_sensor_data_to_firestore(self, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -42,9 +38,6 @@ class FirebaseClient:
                 return {"ok": False, "error": "data must be a dict"}
 
             timestamp = time.time()
-
-            # ESP32 sensor readings are inside the "sensor_data" array in a format of:
-            # [{"data": "Temperature", "value": "25.3", "type": "float", "unit": "C"}, ...]
             sensor_array = data.get("sensor_data", [])
             if isinstance(sensor_array, list):
                 for item in sensor_array:
@@ -53,7 +46,6 @@ class FirebaseClient:
                     if sensor_name and sensor_value is not None:
                         self.set_last_value(sensor_name, sensor_value, timestamp)
 
-            # Actuator states
             for key in ("fanOn", "growLightOn", "pumpOn"):
                 if key in data:
                     self.set_last_value(key, data[key], timestamp)
