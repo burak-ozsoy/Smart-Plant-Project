@@ -44,7 +44,7 @@ Sensor::ADC::ADC(adc_channel_t ch1 , adc_channel_t ch2){
 int32_t Sensor::ADC::read_percent(adc_channel_t channel){
     if(handle == nullptr) return 0;
     int32_t sum = 0;
-    for(size_t i = 0; i < 4; i++){
+    for(int32_t i = 0; i < ADC_SAMPLES; i++){
         int raw = 0;
         esp_err_t err = adc_oneshot_read(handle, channel, &raw);
         if(err != ESP_OK){
@@ -53,8 +53,20 @@ int32_t Sensor::ADC::read_percent(adc_channel_t channel){
         }
         sum += raw;
     }
-    int32_t avg = sum / 4;
-    return 100 - ((avg * 100) / 4095);
+    int32_t avg = sum / ADC_SAMPLES;
+
+    if(channel == Sensor::Pins::SOIL_MOISTURE_ADC){
+        if(avg >= SOIL_DRY)  return 0;
+        if(avg <= SOIL_WET)  return 100;
+        return (int32_t)(((float)(SOIL_DRY - avg) / (float)(SOIL_DRY - SOIL_WET)) * 100.0f);
+    }
+    if(channel == Sensor::Pins::LIGHT_SENSOR_ADC){
+        // LDR: dark = high ADC, bright = low ADC  →  invert: %0 = dark, %100 = bright
+        if(avg >= LIGHT_DARK)   return 0;
+        if(avg <= LIGHT_BRIGHT) return 100;
+        return (int32_t)(((float)(LIGHT_DARK - avg) / (float)(LIGHT_DARK - LIGHT_BRIGHT)) * 100.0f);
+    }
+    return 100 - ((avg * 100) / 4095); // fallback
 }
 
 int32_t Sensor::DHT::dht_wait_for_level(uint32_t level , uint16_t dht_timeout_us, Pins* pin){
@@ -126,6 +138,15 @@ std::unordered_map<std::string , std::string> Sensor::read_sensors(){
     }
 
     bool is_dht22_read_suc = dht->dht22_read(pin);
+    if(is_dht22_read_suc){
+        dht->fail_count = 0;
+    } else {
+        dht->fail_count++;
+        if(dht->fail_count >= 5){
+            ESP_LOGE(CLASS_TAG, "DHT22 failed %d consecutive times!" , dht->fail_count);
+        }
+    }
+
     auto get_temperature = [this, is_dht22_read_suc]() -> float{
         sd->temperature = INVALID_FLOAT;
         if(is_dht22_read_suc){
@@ -137,11 +158,11 @@ std::unordered_map<std::string , std::string> Sensor::read_sensors(){
         }
         return sd->temperature;
     };
-    
+
     auto get_humidity = [this , is_dht22_read_suc]() -> float{
         sd->humidity = INVALID_FLOAT;
         if(is_dht22_read_suc){
-            sd->humidity =  ((dht->data[0] << 8) | dht->data[1]) * 0.1f;
+            sd->humidity = ((dht->data[0] << 8) | dht->data[1]) * 0.1f;
         }
         return sd->humidity;
     };
@@ -161,33 +182,42 @@ std::unordered_map<std::string , std::string> Sensor::read_sensors(){
         sd->lightLevel = (val <= 100) ? static_cast<uint8_t>(val) : INVALID_UINT8_T;
         return sd->lightLevel;
     };
-    
-    return {{"Temperature", std::to_string(get_temperature())},
-            {"Humidity" , std::to_string(get_humidity())},
-            {"Soil Moisture", std::to_string(get_soil_moisture())},
-            {"Light Level", std::to_string(get_light())}};
+
+    auto to_str_1dp = [](float v) -> std::string {
+        char buffer[16];
+        snprintf(buffer, sizeof(buffer), "%.1f", v);
+        return std::string(buffer);
+    };
+
+    float temp = get_temperature() , hum = get_humidity();
+    uint16_t soil = get_soil_moisture() , light = get_light();
+
+    return {{"Temperature",  (temp  == INVALID_FLOAT)   ? "null" : to_str_1dp(temp)},
+            {"Humidity",     (hum   == INVALID_FLOAT)   ? "null" : to_str_1dp(hum)},
+            {"Soil Moisture",(soil  == INVALID_UINT8_T) ? "null" : std::to_string(soil)},
+            {"Light Level",  (light == INVALID_UINT8_T) ? "null" : std::to_string(light)}};
     
 }
 
 void Sensor::printStatus(){
     if(this->sd != nullptr){
-        ESP_LOGD(CLASS_TAG, ": Temperature - %.1f Celcius %s",
+        ESP_LOGI(CLASS_TAG, "Temperature: %.1f C [%s]",
             sd->temperature,
-            (sd->temperature == INVALID_FLOAT) ? "[Add print statement to read_sensors method for further information]" : "[OK]");
+            (sd->temperature == INVALID_FLOAT) ? "NO DATA" : "OK");
 
-        ESP_LOGD(CLASS_TAG, " : Humidity - %.1f %% %s",
+        ESP_LOGI(CLASS_TAG, "Humidity: %.1f %% [%s]",
             sd->humidity,
-            (sd->humidity == INVALID_FLOAT) ? "[Add print statement to read_sensors method for further information]" : "[OK]");
+            (sd->humidity == INVALID_FLOAT) ? "NO DATA" : "OK");
 
-        ESP_LOGD(CLASS_TAG, ": Soil Moisture - %u %% %s",
+        ESP_LOGI(CLASS_TAG, "Soil Moisture: %u %% [%s]",
             sd->soilMoisture,
-            (sd->soilMoisture == INVALID_UINT8_T) ? "[Add print statement to read_sensors method for further information]" : "[OK]");
+            (sd->soilMoisture == INVALID_UINT8_T) ? "NO DATA" : "OK");
 
-        ESP_LOGD(CLASS_TAG, ": Light Level - %u %% %s",
+        ESP_LOGI(CLASS_TAG, "Light Level: %u %% [%s]",
             sd->lightLevel,
-            (sd->lightLevel == INVALID_UINT8_T) ? "[Add print statement to read_sensors method for further information]" : "[OK]");
+            (sd->lightLevel == INVALID_UINT8_T) ? "NO DATA" : "OK");
     } else {
-        ESP_LOGE(CLASS_TAG, "There is an error on pointer that points SensorData object.");
+        ESP_LOGE(CLASS_TAG, "SensorData pointer is null.");
     }
 }
 

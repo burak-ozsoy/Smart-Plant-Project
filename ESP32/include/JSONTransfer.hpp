@@ -9,19 +9,14 @@
 #include "esp_wifi.h"
 #include "esp_event.h"
 #include "esp_log.h"
-#include "esp_sntp.h"
 #include "mqtt_client.h"
 #include "nvs_flash.h"
 
 #include <unordered_map>
 #include <string>
-#include <sstream>
-#include <chrono>
-#include <ctime>
-#include <iomanip>
 
-#define MQTT_BUFFER_SIZE 512
-#define JSON_DOC_SIZE    512
+#define MQTT_BUFFER_SIZE 1024
+#define JSON_DOC_SIZE    1024
 
 class JSON_Transfer {
 private:
@@ -35,9 +30,9 @@ private:
     static void mqtt_event_handler(void* arg, esp_event_base_t base, int32_t event_id, void* data);
 
     struct Wifi {
-        const char* ssid = nullptr;
-        const char* pwd = nullptr;
-        const char* raspberry_ip = nullptr;
+        const char* ssid = WIFI_SSID;
+        const char* pwd = WIFI_PASSWORD;
+        const char* raspberry_ip = RASPBERRY_IP;
         const uint16_t port = 1883;
         std::string subscriber_topic;
 
@@ -64,10 +59,10 @@ private:
 
 public:
     JSON_Transfer(SemaphoreHandle_t mutex);
-    void write_time(JsonDocument&);
     void send();
     void read_and_send();
     void mqtt_client_loop();
+    void printStatus();
     bool is_initialized();
     ~JSON_Transfer();
 };
