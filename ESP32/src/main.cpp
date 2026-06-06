@@ -23,6 +23,15 @@ void sensor_actuator_send_task(void*) {
     }
 }
 
+void monitor_task(void*) {
+    while (true) {
+        vTaskDelay(pdMS_TO_TICKS(MONITOR_PRINT_PERIOD_MS));
+        if (g_jt != nullptr) {
+            g_jt->printStatus();
+        }
+    }
+}
+
 extern "C" void app_main() {
     ESP_LOGI(MAIN_TAG, "System is initialized!");
 
@@ -39,16 +48,27 @@ extern "C" void app_main() {
     g_jt = new (std::nothrow) JSON_Transfer(g_data_mutex);
     if (g_jt == nullptr || !g_jt->is_initialized()) {
         ESP_LOGE(MAIN_TAG, "Unable to initialize JSON_Transfer object");
+        delete g_jt;
+        g_jt = nullptr;
         return;
     }
 
     ESP_LOGI(MAIN_TAG, "Waiting for DHT22 sensor stabilization...");
     vTaskDelay(pdMS_TO_TICKS(2000));
-    xTaskCreate(sensor_actuator_send_task,
-                "sensor_send",
-                16384,
-                nullptr,
-                5,
-                nullptr);
+    xTaskCreatePinnedToCore(sensor_actuator_send_task,
+                            "sensor_send",
+                            16384,
+                            nullptr,
+                            5,
+                            nullptr,
+                            0); // Core 0: sensor okuma + aktüatör kontrolü + MQTT gönderimi
+
+    xTaskCreatePinnedToCore(monitor_task,
+                            "monitor",
+                            4096,
+                            nullptr,
+                            2,
+                            nullptr,
+                            1); // Core 1: periyodik seri port durumu
 
 }
