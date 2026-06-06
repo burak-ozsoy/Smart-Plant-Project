@@ -92,10 +92,11 @@ check_and_open_port() {
 
         if [ "$port" = "1883" ]; then
             MOSQ_CONF="/etc/mosquitto/mosquitto.conf"
-            if ! grep -q "listener 1883" "$MOSQ_CONF" 2>/dev/null; then
-                echo "listener 1883" | sudo tee -a "$MOSQ_CONF"
-                echo "allow_anonymous true" | sudo tee -a "$MOSQ_CONF"
-                echo -e "${BLUE}NOTE:${RESET} Added listener 1883 to mosquitto.conf"
+            if ! grep -q "listener 1883 0.0.0.0" "$MOSQ_CONF" 2>/dev/null; then
+                sudo_command sed -i '/^listener 1883/d' "$MOSQ_CONF" 2>/dev/null
+                sudo_command bash -c "echo 'listener 1883 0.0.0.0' >> $MOSQ_CONF"
+                sudo_command bash -c "echo 'allow_anonymous true' >> $MOSQ_CONF"
+                echo -e "${BLUE}NOTE:${RESET} Added listener 1883 0.0.0.0 to mosquitto.conf"
             fi
             sudo_command systemctl restart mosquitto
             sleep 1
@@ -172,5 +173,5 @@ fi
 sudo chmod 700 "$dir"/*
 echo -e "${BLUE}NOTE:${RESET}: Setting CPU Core 0 to run mqtt_broker.py"
 echo -e "${BLUE}NOTE:${RESET}: Setting CPU Core 1 , 2 and 3 to run camera.py"
-#taskset -c 0 python3 "$dir/MQTT/mqtt_broker.py" &
+taskset -c 0 env PYTHONPATH="$dir" python3 "$dir/MQTT/mqtt_broker.py" &
 #taskset -c 1,2,3 python3 "$dir/camera/camera.py" &
