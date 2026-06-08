@@ -8,7 +8,7 @@ import time
 # import websockets
 from dotenv import load_dotenv , find_dotenv
 from uuid import getnode
-from firebase.send_to_firestore import FirebaseClient
+from Raspberry.firebase.send_to_firebase import FirebaseClient
 
 class MQTT_Broker:
    
@@ -148,7 +148,7 @@ class MQTT_Broker:
             self.sensor_buffer.clear()
 
         try:
-            res = self.firebase_client.send_sensor_data_to_firestore(averaged)
+            res = self.firebase_client.send_data_to_firebase(averaged, source="esp32")
             if res.get('ok'):
                 print(f"{self.tag}: Averaged data ({averaged['sample_count']} samples) sent to Firestore. ID: {res.get('id')}")
             else:
