@@ -144,10 +144,16 @@ else
                 file_not_found=true
             fi
         elif [ "$folder" = "firebase" ]; then
-            if [ -f "$dir/$folder/send_to_firestore.py" ]; then
-                echo -e "${GREEN}SUCCESS:${RESET} send_to_firestore.py exists under ${dir}/${folder} directory"
+            if [ -f "$dir/$folder/send_to_firebase.py" ]; then
+                echo -e "${GREEN}SUCCESS:${RESET} send_to_firebase.py exists under ${dir}/${folder} directory"
             else
-                echo -e "${RED}ERROR:${RESET} send_to_firestore.py does not exists under ${dir}/${folder} directory"
+                echo -e "${RED}ERROR:${RESET} send_to_firebase.py does not exists under ${dir}/${folder} directory"
+                file_not_found=true
+            fi
+            if [ -f "$dir/$folder/serviceAccountKey.json" ]; then
+                echo -e "${GREEN}SUCCESS:${RESET} serviceAccountKey.json exists under ${dir}/${folder} directory"
+            else
+                echo -e "${RED}ERROR:${RESET} serviceAccountKey.json does not exists under ${dir}/${folder} directory"
                 file_not_found=true
             fi
         elif [ "$folder" = "MQTT" ]; then
@@ -173,5 +179,5 @@ fi
 sudo chmod 700 "$dir"/*
 echo -e "${BLUE}NOTE:${RESET}: Setting CPU Core 0 to run mqtt_broker.py"
 echo -e "${BLUE}NOTE:${RESET}: Setting CPU Core 1 , 2 and 3 to run camera.py"
-taskset -c 0 env PYTHONPATH="$dir" python3 "$dir/MQTT/mqtt_broker.py" &
-#taskset -c 1,2,3 python3 "$dir/camera/camera.py" &
+taskset -c 0 env PYTHONPATH=$(dirname "$dir") python3 "$dir/MQTT/mqtt_broker.py" &
+#taskset -c 1,2,3 env PYTHONPATH=$(dirname "$dir") python3 "$dir/camera/camera.py" &
