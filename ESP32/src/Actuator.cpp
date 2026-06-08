@@ -26,9 +26,10 @@ Actuator::Pins::Pins(){
     };
     gpio_config(&output_conf);
  
-    gpio_set_level(this->PUMP_RELAY_PIN, 0);
-    gpio_set_level(this->GROW_LIGHT_PIN, 0);
-    gpio_set_level(this->FAN_RELAY_PIN, 0);
+    // Relay module is active-low: HIGH = relay OFF (initial safe state)
+    gpio_set_level(this->PUMP_RELAY_PIN, 1);
+    gpio_set_level(this->GROW_LIGHT_PIN, 1);
+    gpio_set_level(this->FAN_RELAY_PIN, 1);
 
     ESP_LOGI(Actuator::CLASS_TAG, "GPIO pins configured successfully. PUMP:%d, LIGHT:%d, FAN:%d",
         this->PUMP_RELAY_PIN, this->GROW_LIGHT_PIN, this->FAN_RELAY_PIN);
@@ -57,13 +58,13 @@ void Actuator::control_actuators(){
         if(s->sd->soilMoisture < t->thres->soilMoistureVals[0]){
             if(!as->pumpOn && pin != nullptr){
                 this->as->pumpOn = true;
-                gpio_set_level(pin->PUMP_RELAY_PIN, as->pumpOn);
+                gpio_set_level(pin->PUMP_RELAY_PIN, 0); // active-low: LOW = relay ON
                 ESP_LOGW(CLASS_TAG, "Water pump is now ON - Soil moisture: %d%%", s->sd->soilMoisture);
             }
         } else if(s->sd->soilMoisture > t->thres->soilMoistureVals[1]){
             if(as->pumpOn && pin != nullptr){
                 this->as->pumpOn = false;
-                gpio_set_level(pin->PUMP_RELAY_PIN, as->pumpOn);
+                gpio_set_level(pin->PUMP_RELAY_PIN, 1); // active-low: HIGH = relay OFF
                 ESP_LOGW(CLASS_TAG, "Water pump is now OFF due to enough soil moisture! - Soil moisture: %d%%", s->sd->soilMoisture);
             }
         }
@@ -75,13 +76,13 @@ void Actuator::control_actuators(){
         if(s->sd->lightLevel < t->thres->lightVals[0]){
             if(!as->growLightOn && pin != nullptr){
                 this->as->growLightOn = true;
-                gpio_set_level(pin->GROW_LIGHT_PIN, as->growLightOn);
+                gpio_set_level(pin->GROW_LIGHT_PIN, 0); // active-low: LOW = relay ON
                 ESP_LOGW(CLASS_TAG, "Grow light is now ON due to low light level! - Light level: %d%%" , s->sd->lightLevel);
             }
         } else if(s->sd->lightLevel > t->thres->lightVals[1]){
             if(as->growLightOn && pin != nullptr){
                 this->as->growLightOn = false;
-                gpio_set_level(pin->GROW_LIGHT_PIN, as->growLightOn);
+                gpio_set_level(pin->GROW_LIGHT_PIN, 1); // active-low: HIGH = relay OFF
                 ESP_LOGW(CLASS_TAG, "Grow light is now OFF due to enough light level! %d%%" , s->sd->lightLevel);
             }
         }
@@ -92,19 +93,23 @@ void Actuator::control_actuators(){
     if(s->sd->temperature != INVALID_FLOAT && s->sd->humidity != INVALID_FLOAT){
         bool highTemp = s->sd->temperature > t->thres->tempVals[1];
         bool highHum  = s->sd->humidity > t->thres->humidityVals[1];
+        bool lowTemp  = s->sd->temperature < t->thres->tempVals[0];
+        bool lowHum   = s->sd->humidity < t->thres->humidityVals[0];
+
         if(highTemp || highHum){
             if(!as->fanOn && pin != nullptr){
                 this->as->fanOn = true;
-                gpio_set_level(pin->FAN_RELAY_PIN, as->fanOn);
+                gpio_set_level(pin->FAN_RELAY_PIN, 0); // active-low: LOW = relay ON
                 ESP_LOGW(CLASS_TAG, "Fan is ON due to %s",
                     (highTemp && highHum) ? "both high temperature and humidity values!" :
                     highTemp ? "high temperature value!" : "high humidity value!");
             }
-        } else {
+        } else if(lowTemp || lowHum){
             if(as->fanOn && pin != nullptr){
                 as->fanOn = false;
-                gpio_set_level(pin->FAN_RELAY_PIN, as->fanOn);
-                ESP_LOGW(CLASS_TAG, "Fan is OFF due to low Temperature/Humidity values. Temperature: %.2f , Humidity: %.2f" , s->sd->temperature , s->sd->humidity);
+                gpio_set_level(pin->FAN_RELAY_PIN, 1); // active-low: HIGH = relay OFF
+                ESP_LOGW(CLASS_TAG, "Fan is OFF. Temperature: %.2f°C, Humidity: %.2f%%",
+                    s->sd->temperature, s->sd->humidity);
             }
         }
     } else {
@@ -124,15 +129,15 @@ void Actuator::activate_actuators(const std::unordered_map<std::string, bool>& u
 
     if(um.find("fanOn") != um.end()){
        as->fanOn = um.at("fanOn");
-       gpio_set_level(pin->FAN_RELAY_PIN, (as->fanOn)? 1 : 0);
+       gpio_set_level(pin->FAN_RELAY_PIN, (as->fanOn)? 0 : 1); // active-low
     } 
     if(um.find("pumpOn") != um.end()){
         as->pumpOn = um.at("pumpOn");
-        gpio_set_level(pin->PUMP_RELAY_PIN, (as->pumpOn)? 1 : 0);
+        gpio_set_level(pin->PUMP_RELAY_PIN, (as->pumpOn)? 0 : 1); // active-low
     } 
     if(um.find("growLightOn") != um.end()){
        as->growLightOn = um.at("growLightOn");
-       gpio_set_level(pin->GROW_LIGHT_PIN, (as->growLightOn)? 1 : 0);
+       gpio_set_level(pin->GROW_LIGHT_PIN, (as->growLightOn)? 0 : 1); // active-low
     }
     ESP_LOGI(CLASS_TAG, "States set -> Pump:%s Light:%s Fan:%s", as->pumpOn ? "On":"Off", as->growLightOn ? "On":"Off", as->fanOn ? "On":"Off");
 }

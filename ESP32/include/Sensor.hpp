@@ -16,13 +16,14 @@
 
 #define INVALID_FLOAT -1000.0F
 #define INVALID_UINT8_T ((uint8_t)UINT8_MAX)
-#define SENSOR_READ_PERIOD_MS 2000
+#define SENSOR_READ_PERIOD_MS    2000
+#define MONITOR_PRINT_PERIOD_MS  3000
 
 
 class Sensor {
 private:
     struct Pins {
-        static constexpr gpio_num_t DHT_GPIO = GPIO_NUM_4;
+        static constexpr gpio_num_t DHT_GPIO = GPIO_NUM_32;
         static constexpr adc_channel_t SOIL_MOISTURE_ADC = ADC_CHANNEL_6; // GPIO34
         static constexpr adc_channel_t LIGHT_SENSOR_ADC = ADC_CHANNEL_7;  // GPIO35
         Pins();
@@ -44,6 +45,7 @@ private:
             const uint16_t dht_timeout_us = 100;
             bool dht22_read(Pins*);
             uint8_t* get_data(){ return data;}
+            uint8_t fail_count = 0;
             DHT() : data(nullptr) {}
             ~DHT(){ if(data != nullptr) delete[] data;}
             private:
@@ -55,6 +57,13 @@ private:
 
     struct ADC {
         adc_oneshot_unit_handle_t handle = nullptr;
+        // Soil moisture calibration (raw ADC values)
+        static constexpr int32_t SOIL_DRY     = 4095;
+        static constexpr int32_t SOIL_WET     = 2450;
+        // Light sensor (LDR) calibration: dark = high ADC, bright = low ADC
+        static constexpr int32_t LIGHT_DARK   = 2500;
+        static constexpr int32_t LIGHT_BRIGHT = 450;
+        static constexpr int32_t ADC_SAMPLES  = 8;
         ADC(adc_channel_t ch1, adc_channel_t ch2);
         int32_t read_percent(adc_channel_t channel);
         ~ADC(){ if(handle != nullptr) adc_oneshot_del_unit(handle); }
