@@ -4,6 +4,7 @@
 #pragma once
 #include "Sensor.hpp"
 #include <unordered_map>
+#include "freertos/FreeRTOS.h"
 #include "driver/gpio.h"
 #include "esp_log.h"
 
@@ -12,9 +13,9 @@
 class Actuator {
 private:
     struct Pins {
-        static constexpr gpio_num_t PUMP_RELAY_PIN = GPIO_NUM_25;
-        static constexpr gpio_num_t GROW_LIGHT_PIN = GPIO_NUM_26;
-        static constexpr gpio_num_t FAN_RELAY_PIN = GPIO_NUM_27;
+        static constexpr gpio_num_t PUMP_RELAY_PIN = GPIO_NUM_23;
+        static constexpr gpio_num_t GROW_LIGHT_PIN = GPIO_NUM_22;
+        static constexpr gpio_num_t FAN_RELAY_PIN = GPIO_NUM_21;
         Pins();
     };
 
@@ -23,8 +24,15 @@ private:
         bool growLightOn;
         bool fanOn;
     };
+    struct ManualOverride {
+        bool active = false;
+        TickType_t expires_at = 0;
+    };
     ActuatorState* as = nullptr;
+    ManualOverride manual_override = {};
     void control_actuators();
+    bool is_manual_override_active();
+    void start_manual_override();
     void activate_actuators(const std::unordered_map<std::string , bool>&);
     void delete_ptrs();
     Sensor* s = nullptr;

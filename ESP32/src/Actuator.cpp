@@ -1,5 +1,6 @@
 #include "Actuator.hpp"
 
+static constexpr TickType_t MANUAL_OVERRIDE_WINDOW_TICKS = pdMS_TO_TICKS(60000);
 
 Actuator::Actuator(){
     if(s == nullptr) this->s = new (std::nothrow) Sensor();
@@ -36,6 +37,10 @@ Actuator::Pins::Pins(){
 }
 
 void Actuator::control_actuators(){
+
+    if(is_manual_override_active()){
+        return;
+    }
 
     if(s != nullptr && s->sd == nullptr){
         ESP_LOGE(CLASS_TAG , ": Access to SensorData is failed!");
@@ -117,6 +122,27 @@ void Actuator::control_actuators(){
     }
 }
 
+bool Actuator::is_manual_override_active(){
+    if(!manual_override.active){
+        return false;
+    }
+
+    const TickType_t now = xTaskGetTickCount();
+    if(static_cast<int32_t>(manual_override.expires_at - now) <= 0){
+        manual_override.active = false;
+        ESP_LOGI(CLASS_TAG, "Manual override expired, returning to automatic control.");
+        return false;
+    }
+
+    return true;
+}
+
+void Actuator::start_manual_override(){
+    manual_override.active = true;
+    manual_override.expires_at = xTaskGetTickCount() + MANUAL_OVERRIDE_WINDOW_TICKS;
+    ESP_LOGI(CLASS_TAG, "Manual override enabled for 60 seconds.");
+}
+
 void Actuator::call_control_actuators(){
     control_actuators();
 }
@@ -126,6 +152,8 @@ void Actuator::activate_actuators(const std::unordered_map<std::string, bool>& u
         ESP_LOGE(CLASS_TAG , ": error on either as/pin pointer!");
         return;
     }
+
+    start_manual_override();
 
     if(um.find("fanOn") != um.end()){
        as->fanOn = um.at("fanOn");

@@ -15,6 +15,7 @@ void JSON_Transfer::wifi_event_handler(void* arg, esp_event_base_t base, int32_t
     } else if(base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP){
         ip_event_got_ip_t* event = static_cast<ip_event_got_ip_t*>(data);
         snprintf(self->local_ip, sizeof(self->local_ip), IPSTR, IP2STR(&event->ip_info.ip));
+        self->w->subscriber_topic = "actuator_data/" + std::string(self->w->raspberry_ip ? self->w->raspberry_ip : "0.0.0.0");
         self->w->wifi_connected = true;
         ESP_LOGI(CLASS_TAG, "WiFi connected. IP: %s", self->local_ip);
 
@@ -29,20 +30,19 @@ void JSON_Transfer::mqtt_event_handler(void* arg, esp_event_base_t base, int32_t
     switch (static_cast<esp_mqtt_event_id_t>(event_id)) {
         case MQTT_EVENT_CONNECTED:
             self->w->mqtt_connected = true;
-            // esp_mqtt_client_subscribe(self->w->mqtt_client, self->w->subscriber_topic.c_str(), 0);
-            // ESP_LOGI(CLASS_TAG, "MQTT connected, subscribed to '%s'", self->w->subscriber_topic.c_str());
-            ESP_LOGI(CLASS_TAG, "MQTT connected");
+            esp_mqtt_client_subscribe(self->w->mqtt_client, self->w->subscriber_topic.c_str(), 0);
+            ESP_LOGI(CLASS_TAG, "MQTT connected, subscribed to '%s'", self->w->subscriber_topic.c_str());
             break;
         case MQTT_EVENT_DISCONNECTED:
             self->w->mqtt_connected = false;
             ESP_LOGW(CLASS_TAG, "MQTT disconnected");
             break;
-        // case MQTT_EVENT_DATA: { 
-        //     std::string topic(event->topic, event->topic_len);
-        //     std::string payload(event->data, event->data_len);
-        //     self->receive_and_apply(topic, payload);
-        //     break;
-        // }
+        case MQTT_EVENT_DATA: {
+            std::string topic(event->topic, event->topic_len);
+            std::string payload(event->data, event->data_len);
+            self->receive_and_apply(topic, payload);
+            break;
+        }
         case MQTT_EVENT_ERROR:
             ESP_LOGE(CLASS_TAG, "MQTT error occurred");
           break;
@@ -53,7 +53,6 @@ void JSON_Transfer::mqtt_event_handler(void* arg, esp_event_base_t base, int32_t
 
 
 void JSON_Transfer::Wifi::init_wifi() {
-    // subscriber_topic = "from_" + std::string(raspberry_ip ? raspberry_ip : "");
     netif = esp_netif_create_default_wifi_sta();
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
@@ -192,31 +191,29 @@ void JSON_Transfer::send_json_to_raspberry(JsonDocument& json_to_be_sent){
     }
 }
 
-// void JSON_Transfer::receive_and_apply(const std::string& topic, const std::string& payload){
-//     if (topic != w->subscriber_topic) return;
-//     if (act == nullptr) return;
-// 
-//     JsonDocument received_json;
-//     DeserializationError err = deserializeJson(received_json, payload);
-//     if (err) {
-//         ESP_LOGE(CLASS_TAG, "JSON parse error: %s", err.c_str());
-//         return;
-//     }
-// 
-//     if (received_json["topic"] == "actuator_request") {
-//         if(xSemaphoreTake(shared_mtx , pdMS_TO_TICKS(1000)) == pdTRUE){
-//         
-//             std::unordered_map<std::string, bool> requests = {
-//                 {"pumpOn", received_json["pumpOn"] | false},
-//                 {"growLightOn", received_json["growLightOn"] | false},
-//                 {"fanOn", received_json["fanOn"] | false}
-//             };
-//             act->activate_actuators(requests);
-//             xSemaphoreGive(shared_mtx);
-//             ESP_LOGI(CLASS_TAG, "Actuator command received and applied.");
-//         }
-//     }
-// }
+void JSON_Transfer::receive_and_apply(const std::string& topic, const std::string& payload){
+    if (w == nullptr || topic != w->subscriber_topic) return;
+    if (act == nullptr) return;
+
+    JsonDocument received_json;
+    DeserializationError err = deserializeJson(received_json, payload);
+    if (err) {
+        ESP_LOGE(CLASS_TAG, "Actuator JSON parse error: %s", err.c_str());
+        return;
+    }
+
+    std::unordered_map<std::string, bool> requests = {
+        {"pumpOn", received_json["pumpOn"] | false},
+        {"growLightOn", received_json["growLightOn"] | false},
+        {"fanOn", received_json["fanOn"] | false}
+    };
+
+    if(xSemaphoreTake(shared_mtx , pdMS_TO_TICKS(1000)) == pdTRUE){
+        act->activate_actuators(requests);
+        xSemaphoreGive(shared_mtx);
+        ESP_LOGI(CLASS_TAG, "Actuator command applied from topic '%s'", topic.c_str());
+    }
+}
 
 
 void JSON_Transfer::mqtt_client_loop(){
