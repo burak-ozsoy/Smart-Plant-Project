@@ -1,8 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, Image, TouchableOpacity, Alert } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as MediaLibrary from 'expo-media-library';
+import * as Haptics from 'expo-haptics';
 import { SIZES } from '../constants/theme';
 import { useThemeColors } from '../hooks/useThemeColors';
 import { useFirebase } from '../context/FirebaseContext';
@@ -19,6 +22,61 @@ export default function CameraScreen() {
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<any>(null);
+
+  const [isSaving, setIsSaving] = useState(false);
+
+  const handleCapture = async () => {
+    if (!frame) return;
+
+    setIsSaving(true);
+    try {
+      // 1. Request permission if not already granted
+      let { status } = await MediaLibrary.getPermissionsAsync();
+      if (status !== 'granted') {
+        const request = await MediaLibrary.requestPermissionsAsync();
+        status = request.status;
+      }
+
+      if (status !== 'granted') {
+        Alert.alert("Permission Required", "Please allow gallery access to save photos.");
+        return;
+      }
+
+      // 2. Extract base64 data from frame string
+      const base64Data = frame.split(';base64,').pop();
+      if (!base64Data) {
+        throw new Error("Invalid frame data");
+      }
+
+      // 3. Write data to a cached temp file
+      const filename = `smart_plant_photo_${Date.now()}.jpg`;
+      const fileUri = `${FileSystem.cacheDirectory}${filename}`;
+
+      await FileSystem.writeAsStringAsync(fileUri, base64Data, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      // 4. Save to device gallery
+      await MediaLibrary.saveToLibraryAsync(fileUri);
+
+      // 5. Clean up temp file
+      try {
+        await FileSystem.deleteAsync(fileUri, { idempotent: true });
+      } catch (err) {
+        console.warn("Could not delete temp cache file:", err);
+      }
+
+      // 6. Success feedback
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert("Saved Successfully", "The photo has been saved to your gallery.");
+    } catch (err: any) {
+      console.error("Capture/Save error:", err);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Alert.alert("Error Saving", err.message || "An unexpected error occurred while saving.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   useEffect(() => {
     // If no device, no IP address, or screen is not focused, close any active socket.
@@ -168,21 +226,26 @@ export default function CameraScreen() {
       </View>
 
       <BlurView intensity={isDark ? 40 : 80} tint={isDark ? "dark" : "light"} style={[styles.controlsContainer, { borderColor: colors.cardBorder }]}>
-        <TouchableOpacity style={styles.controlButton} disabled={!frame}>
-          <MaterialCommunityIcons name="camera" size={28} color={frame ? colors.textPrimary : colors.textSecondary} />
+        <TouchableOpacity style={styles.controlButton} disabled={!frame || isSaving} onPress={handleCapture}>
+          <MaterialCommunityIcons name="camera" size={28} color={(frame && !isSaving) ? colors.textPrimary : colors.textSecondary} />
         </TouchableOpacity>
         <TouchableOpacity 
           style={[
             styles.controlButton, 
             styles.captureButton, 
-            { borderColor: frame ? colors.textPrimary : colors.textSecondary }
+            { borderColor: (frame && !isSaving) ? colors.textPrimary : colors.textSecondary }
           ]} 
-          disabled={!frame}
+          disabled={!frame || isSaving}
+          onPress={handleCapture}
         >
-          <View style={[styles.captureInner, { backgroundColor: frame ? colors.textPrimary : colors.textSecondary }]} />
+          {isSaving ? (
+            <LeafLoader size="small" color={colors.primary} />
+          ) : (
+            <View style={[styles.captureInner, { backgroundColor: frame ? colors.textPrimary : colors.textSecondary }]} />
+          )}
         </TouchableOpacity>
-        <TouchableOpacity style={styles.controlButton} disabled={!frame}>
-          <MaterialCommunityIcons name="image-multiple" size={28} color={frame ? colors.textPrimary : colors.textSecondary} />
+        <TouchableOpacity style={styles.controlButton} disabled={!frame || isSaving}>
+          <MaterialCommunityIcons name="image-multiple" size={28} color={(frame && !isSaving) ? colors.textPrimary : colors.textSecondary} />
         </TouchableOpacity>
       </BlurView>
     </View>
