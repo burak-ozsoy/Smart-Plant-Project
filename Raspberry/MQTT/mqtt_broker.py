@@ -4,8 +4,9 @@ import os
 import json
 import threading
 import time
-# import asyncio
-# import websockets
+import asyncio
+import socket
+import websockets
 from dotenv import load_dotenv , find_dotenv
 from uuid import getnode
 from Raspberry.firebase.send_to_firebase import FirebaseClient
@@ -16,49 +17,65 @@ class MQTT_Broker:
 
         load_dotenv(find_dotenv())
 
-        self.device = ':'.join(['{:02x}'.format((getnode() >> ele) & 0xff)
+        self.__mac_addr = ':'.join(['{:02X}'.format((getnode() >> ele) & 0xff)
                                 for ele in range(0, 8*6, 8)][::-1])
+        self._raspberry_ip = self._get_local_ip()
 
-        self.lock = threading.RLock()
+        self._lock = threading.RLock()
         self.tag = "[mqtt_broker.py]"
-        self.root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        self._root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-        os.makedirs(os.path.join(self.root_dir, "json_from_esp32"), exist_ok=True)
-        os.makedirs(os.path.join(self.root_dir, "json_to_esp32"), exist_ok=True)
-        os.makedirs(os.path.join(self.root_dir, "logs", "json_logs_from_esp32"), exist_ok=True)
-        os.makedirs(os.path.join(self.root_dir, "logs", "json_logs_from_web"), exist_ok=True)
+        os.makedirs(os.path.join(self._root_dir, "json_from_esp32"), exist_ok=True)
+        os.makedirs(os.path.join(self._root_dir, "json_to_esp32"), exist_ok=True)
+        os.makedirs(os.path.join(self._root_dir, "logs", "json_logs_from_esp32"), exist_ok=True)
+        os.makedirs(os.path.join(self._root_dir, "logs", "json_logs_from_web"), exist_ok=True)
 
-        self.mqtt_client = mqtt.Client()
-        self.mqtt_host = "127.0.0.1"
-        self.mqtt_port = 1883
+        self._mqtt_client = mqtt.Client()
+        self._mqtt_host = "127.0.0.1"
+        self._mqtt_port = 1883
+        ws_host = os.getenv("WS_HOST", "").strip()
+        self._ws_bind_host = os.getenv("WS_BIND_HOST", "0.0.0.0").strip() or "0.0.0.0"
+        self._ws_host = ws_host if ws_host else self._raspberry_ip
+        self._ws_port = int(os.getenv("WS_PORT", "8766"))
+        self._ws_start_error = None
 
-        if not self.mqtt_host:
+        if not self._mqtt_host:
             raise ValueError(f"{self.tag} MQTT_HOST is not set. Please define it in the .env file.")
 
-        self.firebase_client = FirebaseClient()
+        self._firebase_client = FirebaseClient()
 
-        self.sensor_data = None
-        self.actuator_data = None
+        self._sensor_data = None
+        self._actuator_data = None
 
-        self.mode = mode
-        self._listening = self.mode in ("LISTENING" , "BOTH")
-        self._sending = self.mode in ("SENDING" , "BOTH")
+        self._mode = mode
+        self._listening = self._mode in ("LISTENING" , "BOTH")
+        self._sending = self._mode in ("SENDING" , "BOTH")
 
-        self.mqtt_client.on_connect = self.on_connect
-        self.mqtt_client.on_message = self.on_message
+        self._mqtt_client.on_connect = self.on_connect
+        self._mqtt_client.on_message = self.on_message
 
-        self.mqtt_client.connect(self.mqtt_host, self.mqtt_port)
-        self.mqtt_client.loop_start()
+        self._mqtt_client.connect(self._mqtt_host, self._mqtt_port)
+        self._mqtt_client.loop_start()
 
-        self.sensor_buffer = []
-        self.avg_interval = 60
+        self._sensor_buffer = []
+        self._avg_interval = 60
         self._start_avg_thread()
+
+    def _get_local_ip(self):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            sock.connect(("8.8.8.8", 80))
+            return sock.getsockname()[0]
+        except Exception:
+            return "127.0.0.1"
+        finally:
+            sock.close()
 
     def on_connect(self, client, userdata, flags, rc):
         if rc == 0:
-            print(f"{self.tag}: Connected to MQTT broker {self.mqtt_host}:{self.mqtt_port}")
+            print(f"{self.tag}: Connected to MQTT broker {self._mqtt_host}:{self._mqtt_port}")
             if self._listening:
-                self.mqtt_client.subscribe("sensor_data_from/#")
+                self._mqtt_client.subscribe("sensor_data_from/#")
         else:
             error_codes = {
                 1: "incorrect protocol version",
@@ -91,17 +108,22 @@ class MQTT_Broker:
                 print(f"{self.tag}: JSON parse error - {e} on is_received_new_json method")
                 return False
 
-            with self.lock:
-                parsed["device"] = self.device
+            with self._lock:
+                if "macAddress" not in parsed:
+                    parsed["macAddress"] = self.__mac_addr
+
+                # Keep actuator routing and DB contract stable: always use Raspberry IP.
+                parsed["ipAddress"] = self._raspberry_ip
+                parsed["gatewayIpAddress"] = self._raspberry_ip
                 parsed["received_at"] = time.strftime("%Y-%m-%d - %H-%M-%S")
-                self.sensor_data = parsed
-                self.sensor_buffer.append(parsed.copy())
+                self._sensor_data = parsed
+                self._sensor_buffer.append(parsed.copy())
                 is_new = self.different_from_latest_json("ESP32")
                 if is_new:
                     self.log_json("ESP32")
                     return True
                 else:
-                    self.sensor_data = None
+                    self._sensor_data = None
                     return False
         else:
             return False
@@ -109,7 +131,7 @@ class MQTT_Broker:
     def _start_avg_thread(self):
         def _loop():
             while True:
-                time.sleep(self.avg_interval)
+                time.sleep(self._avg_interval)
                 self._flush_average()
         t = threading.Thread(target=_loop, daemon=True)
         t.start()
@@ -137,20 +159,20 @@ class MQTT_Broker:
             for name in sensor_sums
         ]
         result["received_at"] = time.strftime("%Y-%m-%d - %H-%M-%S")
-        result["sample_count"] = len(buffer)
         return result
 
     def _flush_average(self):
-        with self.lock:
-            if not self.sensor_buffer:
+        with self._lock:
+            if not self._sensor_buffer:
                 return
-            averaged = self._calculate_average(self.sensor_buffer)
-            self.sensor_buffer.clear()
+            sample_count = len(self._sensor_buffer)
+            averaged = self._calculate_average(self._sensor_buffer)
+            self._sensor_buffer.clear()
 
         try:
-            res = self.firebase_client.send_data_to_firebase(averaged, source="esp32")
+            res = self._firebase_client.send_data_to_firebase(averaged, source="esp32")
             if res.get('ok'):
-                print(f"{self.tag}: Averaged data ({averaged['sample_count']} samples) sent to Firestore. ID: {res.get('id')}")
+                print(f"{self.tag}: Averaged data ({sample_count} samples) sent to Firestore. ID: {res.get('id')}")
             else:
                 print(f"{self.tag}: Firestore error - {res.get('error')}")
         except Exception as e:
@@ -160,11 +182,11 @@ class MQTT_Broker:
         dir_path = None
         check = None
         if publisher == "ESP32":
-            dir_path = os.path.join(self.root_dir , "json_from_esp32")
-            check = self.sensor_data
+            dir_path = os.path.join(self._root_dir , "json_from_esp32")
+            check = self._sensor_data
         elif publisher == "RASPBERRY":
-            dir_path = os.path.join(self.root_dir , "json_to_esp32")
-            check = self.actuator_data
+            dir_path = os.path.join(self._root_dir , "json_to_esp32")
+            check = self._actuator_data
         else:
             return False
         
@@ -174,11 +196,11 @@ class MQTT_Broker:
         os.makedirs(dir_path, exist_ok=True)
         latest_path = os.path.join(dir_path, "latest.json")
 
-        dont_check = {"generated_at", "ts", "iso", "device"}
+        dont_check = {"generated_at", "ts", "iso", "macAddress"}
         def _strip(d):
             return {k: v for k, v in d.items() if k not in dont_check} if isinstance(d, dict) else d
 
-        with self.lock:
+        with self._lock:
             latest_json = None
             if os.path.exists(latest_path):
                 try:
@@ -201,11 +223,11 @@ class MQTT_Broker:
     def log_json(self , publisher , data=None) -> bool:
         
         if publisher == "ESP32":
-            logs_dir = os.path.join(self.root_dir , "logs" , "json_logs_from_esp32")
-            json_to_write = data if data is not None else self.sensor_data
+            logs_dir = os.path.join(self._root_dir , "logs" , "json_logs_from_esp32")
+            json_to_write = data if data is not None else self._sensor_data
         elif publisher == "RASPBERRY":
-            logs_dir = os.path.join(self.root_dir , "logs" , "json_logs_from_web")
-            json_to_write = data if data is not None else self.actuator_data
+            logs_dir = os.path.join(self._root_dir , "logs" , "json_logs_from_web")
+            json_to_write = data if data is not None else self._actuator_data
         else:
             return False
 
@@ -225,75 +247,106 @@ class MQTT_Broker:
         except Exception:
             return False
     
-    
-    # def publish_data_from_website(self, payload, topic="actuator_data"):
-    #     if not self._sending:
-    #         print(f"{self.tag}: Sending mode is disabled")
-    #         return None
-    #     if isinstance(payload, (dict, list)):
-    #         json_to_esp32 = json.dumps(payload)
-    #     elif isinstance(payload , str):
-    #         try:
-    #             json.loads(payload)
-    #             json_to_esp32 = payload
-    #         except Exception:
-    #             return None
-    #     else:
-    #         print(f"{self.tag}: Unsupported payload type {type(payload)}")
-    #         return None
-    #     res = self.mqtt_client.publish(topic , json_to_esp32)
-    #     print(f"{self.tag}: Published to {topic}")
-    #     with self.lock:
-    #         self.actuator_data = json.loads(json_to_esp32)
-    #         self.different_from_latest_json("RASPBERRY")
-    #         self.log_json("RASPBERRY", self.actuator_data)
-    #         self.actuator_data = None
-    #     return res
+    def publish_data_to_esp32(self, payload, topic):
+        if not self._sending:
+            print(f"{self.tag}: Sending mode is disabled")
+            return False
 
-    # def start_websocket_server(self, host, port):
-    #     async def handler(ws):
-    #         print(f"{self.tag}: WS client connected.")
-    #         try:
-    #             async for msg in ws:
-    #                 try:
-    #                     obj = json.loads(msg)
-    #                     topic = obj.get("topic", "actuator_data")
-    #                     payload = obj.get("payload", obj)
-    #                 except Exception:
-    #                     topic = "actuator_data"
-    #                     payload = msg
-    #                 self.publish_data_from_website(payload, topic=topic)
-    #                 try:
-    #                     await ws.send(json.dumps({"status": "published", "topic": topic}))
-    #                 except Exception:
-    #                     pass
-    #         except websockets.exceptions.ConnectionClosed as e:
-    #             print(f"{self.tag}: WS client disconnected - {e}")
-    #     def run_ws():
-    #         loop = asyncio.new_event_loop()
-    #         asyncio.set_event_loop(loop)
-    #         self._ws_loop = loop
-    #         start_server = websockets.serve(handler, host, port)
-    #         loop.run_until_complete(start_server)
-    #         print(f"{self.tag}: WebSocket server started on ws://{host}:{port}")
-    #         loop.run_forever()
-    #     t = threading.Thread(target=run_ws, daemon=True)
-    #     t.start()
-    #     return t
+        if not topic.startswith("actuator_data/"):
+            print(f"{self.tag}: Invalid topic '{topic}'")
+            return False
+
+        if not isinstance(payload, dict):
+            print(f"{self.tag}: Unsupported payload type {type(payload)}")
+            return False
+
+        json_to_esp32 = json.dumps(payload, ensure_ascii=False)
+        res = self._mqtt_client.publish(topic, json_to_esp32)
+
+        if res.rc != mqtt.MQTT_ERR_SUCCESS:
+            print(f"{self.tag}: Failed to publish actuator data to '{topic}'")
+            return False
+
+        print(f"{self.tag}: Published actuator command to '{topic}'")
+        with self._lock:
+            self._actuator_data = {
+                "topic": topic,
+                "payload": payload,
+                "received_at": time.strftime("%Y-%m-%d - %H-%M-%S"),
+            }
+            self.different_from_latest_json("RASPBERRY")
+            self.log_json("RASPBERRY", self._actuator_data)
+        return True
+
+    async def _ws_handler(self, websocket, path=None):
+        print(f"{self.tag}: WS client connected")
+        try:
+            async for msg in websocket:
+                try:
+                    obj = json.loads(msg)
+                    topic = obj.get("topic")
+                    payload = obj.get("payload")
+                except Exception:
+                    await websocket.send(json.dumps({"ok": False, "error": "invalid JSON"}))
+                    continue
+
+                if not topic or not isinstance(payload, dict):
+                    await websocket.send(json.dumps({"ok": False, "error": "topic and payload(dict) are required"}))
+                    continue
+
+                ok = self.publish_data_to_esp32(payload, topic)
+                await websocket.send(json.dumps({"ok": ok, "topic": topic}))
+        except websockets.exceptions.ConnectionClosed:
+            print(f"{self.tag}: WS client disconnected")
+
+    def start_websocket_server(self, bind_host, port):
+        async def _serve_forever():
+            async with websockets.serve(
+                self._ws_handler,
+                bind_host,
+                port,
+                compression=None,
+                ping_interval=20,
+                ping_timeout=20,
+            ):
+                print(f"{self.tag}: WebSocket server started on ws://{self._ws_host}:{port} (bind: {bind_host})")
+                await asyncio.Future()
+
+        def run_ws():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(_serve_forever())
+            except OSError as e:
+                self._ws_start_error = e
+                print(f"{self.tag}: WebSocket bind failed on {bind_host}:{port} - {e}")
+            except Exception as e:
+                self._ws_start_error = e
+                print(f"{self.tag}: WebSocket server failed - {e}")
+            finally:
+                loop.close()
+
+        t = threading.Thread(target=run_ws, daemon=True)
+        t.start()
+        return t
 
     def run(self):
-        # ws_host = os.getenv("WS_HOST")
-        # ws_port = int(os.getenv("WS_PORT" , 8765))
-        # self.start_websocket_server(host=ws_host, port=ws_port)
+        self.start_websocket_server(bind_host=self._ws_bind_host, port=self._ws_port)
 
-        print(f"{self.tag}: MQTT broker helper running. Subscribed to 'sensor_data_from/#'. Ready to publish website messages to 'actuator_data'.")
+        time.sleep(0.3)
+        if self._ws_start_error is not None:
+            self._mqtt_client.loop_stop()
+            self._mqtt_client.disconnect()
+            return
+
+        print(f"{self.tag}: MQTT broker helper running. Subscribed to 'sensor_data_from/#'. Ready to publish website messages to 'actuator_data/{self._raspberry_ip}'.")
         try:
             while True:
                 time.sleep(1)
         except KeyboardInterrupt:
             print(f"{self.tag}: Shutting down...")
-            self.mqtt_client.loop_stop()
-            self.mqtt_client.disconnect()
+            self._mqtt_client.loop_stop()
+            self._mqtt_client.disconnect()
 
 
 if __name__ == "__main__":
