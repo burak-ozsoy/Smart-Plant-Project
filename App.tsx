@@ -5,13 +5,16 @@ import AppNavigator from './src/navigation/AppNavigator';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { ThemeProvider } from './src/context/ThemeContext';
+import { FirebaseProvider } from './src/context/FirebaseContext';
 
 export default function App() {
   return (
     <SafeAreaProvider>
       <ThemeProvider>
-        <AppNavigator />
-        <StatusBar style="auto" />
+        <FirebaseProvider>
+          <AppNavigator />
+          <StatusBar style="auto" />
+        </FirebaseProvider>
       </ThemeProvider>
     </SafeAreaProvider>
   );

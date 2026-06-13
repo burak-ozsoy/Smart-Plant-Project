@@ -1,5 +1,11 @@
-import React, { createContext, useState, useEffect } from 'react';
-import { useColorScheme } from 'react-native';
+import React, { createContext, useState, useCallback, useMemo } from 'react';
+import { LayoutAnimation, Platform, UIManager } from 'react-native';
+import * as Haptics from 'expo-haptics';
+
+// Enable LayoutAnimation experimental flag on Android for smooth color/layout transitions
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 export const ThemeContext = createContext({
   isDark: true,
@@ -7,20 +13,22 @@ export const ThemeContext = createContext({
 });
 
 export const ThemeProvider = ({ children }: any) => {
-  const systemColorScheme = useColorScheme();
-  const [isDark, setIsDark] = useState(systemColorScheme === 'dark');
+  const [isDark, setIsDark] = useState(true);
 
-  // Set initial theme based on system, but allow manual override
-  useEffect(() => {
-    setIsDark(systemColorScheme === 'dark');
-  }, [systemColorScheme]);
-
-  const toggleTheme = () => {
+  const toggleTheme = useCallback(() => {
+    // Configure next state change to animate smoothly (cross-fade and morph style changes)
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setIsDark((prev) => !prev);
-  };
+  }, []);
+
+  const value = useMemo(() => ({
+    isDark,
+    toggleTheme
+  }), [isDark, toggleTheme]);
 
   return (
-    <ThemeContext.Provider value={{ isDark, toggleTheme }}>
+    <ThemeContext.Provider value={value}>
       {children}
     </ThemeContext.Provider>
   );
