@@ -183,7 +183,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const unsubscribeDoc = onSnapshot(docRef, (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
-        const ip = data.ipadress || data.ipaddress || data.ipAddress || null;
+        const ip = data.ipAddress || data.ipadress || data.ipaddress || null;
         setIpAddress(ip);
         const lr = data.latestReading || {};
         

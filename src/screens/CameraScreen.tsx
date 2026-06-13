@@ -105,6 +105,7 @@ export default function CameraScreen() {
       setIsConnecting(true);
 
       const ws = new WebSocket(wsUrl);
+      ws.binaryType = 'blob';
       wsRef.current = ws;
 
       ws.onopen = () => {
@@ -142,11 +143,11 @@ export default function CameraScreen() {
 
       ws.onclose = (e) => {
         if (!isComponentActive) return;
-        console.log(`🔌 [CameraWS] Connection closed for ${wsUrl}. Reconnecting in 3 seconds...`, e.reason);
+        console.log(`🔌 [CameraWS] Connection closed for ${wsUrl}. Reconnecting in 5 seconds...`, e.reason);
         setIsConnected(false);
         setFrame(null);
         wsRef.current = null;
-        reconnectTimeoutRef.current = setTimeout(connectCameraWs, 3000);
+        reconnectTimeoutRef.current = setTimeout(connectCameraWs, 5000);
       };
 
       ws.onerror = (err) => {
