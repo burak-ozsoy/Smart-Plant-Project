@@ -6,11 +6,9 @@ ESP32/.vscode/c_cpp_properties.json
 ESP32/.vscode/launch.json
 ESP32/.vscode/ipch/
 
-#For MQTT folder
-MQTT/.env
-MQTT/.env.*
-MQTT/firebase-adminsdk*.json
-MQTT/service-account*.json
+#For Raspberrry folder
+Raspberry/firebase/serviceAccountKey.json
+
 
 .DS_Store
 .env
