@@ -1,7 +1,7 @@
 export const MOCK_SENSOR_DATA = {
   temperature: 24.5, // °C
   humidity: 60, // %
-  lightIntensity: 850, // lux
+  lightIntensity: 85, // %
   soilMoisture: 45, // %
 };
 

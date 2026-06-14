@@ -61,11 +61,11 @@ export default function InsightsScreen() {
   let lightDesc = sensors ? "The plant is receiving enough light for photosynthesis during the day." : "";
   let lightColor = colors.warning;
   if (sensors) {
-    if (sensors.lightLevel < 200) {
+    if (sensors.lightLevel < 30) {
       lightAdequacy = "Low Light";
       lightDesc = "Light levels are low. Consider turning on the Grow Light or moving the plant to a brighter spot.";
       lightColor = colors.danger;
-    } else if (sensors.lightLevel > 1200) {
+    } else if (sensors.lightLevel > 80) {
       lightAdequacy = "Too Bright";
       lightDesc = "Light is very intense. Ensure the plant is not getting scorched by direct midday sun.";
       lightColor = colors.warning;
@@ -123,18 +123,18 @@ export default function InsightsScreen() {
       });
     }
 
-    if (sensors.lightLevel < 200) {
+    if (sensors.lightLevel < 30) {
       alerts.push({
         type: 'warning',
         title: 'Low Light Intensity',
-        message: `Light level is only ${sensors.lightLevel} lux. Turn on grow lights or move the plant near a window.`,
+        message: `Light level is only ${sensors.lightLevel}%. Turn on grow lights or move the plant near a window.`,
         icon: 'weather-sunny-alert',
       });
-    } else if (sensors.lightLevel > 1200) {
+    } else if (sensors.lightLevel > 80) {
       alerts.push({
         type: 'warning',
         title: 'Excessive Light Intensity',
-        message: `Light level is very high (${sensors.lightLevel} lux). Protect the plant from scorching direct sun.`,
+        message: `Light level is very high (${sensors.lightLevel}%). Protect the plant from scorching direct sun.`,
         icon: 'weather-sunny-off',
       });
     }

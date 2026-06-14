@@ -308,8 +308,8 @@ export default function AppNavigator() {
                     sensors.soilMoisture <= 80 && 
                     sensors.temperature >= 15 && 
                     sensors.temperature <= 32 &&
-                    sensors.lightLevel >= 200 &&
-                    sensors.lightLevel <= 1200
+                    sensors.lightLevel >= 30 &&
+                    sensors.lightLevel <= 80
                   ) : true;
 
                   return (

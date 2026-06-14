@@ -329,8 +329,8 @@ export default function DashboardScreen({ navigation }: any) {
            sensors.soilMoisture <= 80 && 
            sensors.temperature >= 15 && 
            sensors.temperature <= 32 &&
-           sensors.lightLevel >= 200 &&
-           sensors.lightLevel <= 1200;
+           sensors.lightLevel >= 30 &&
+           sensors.lightLevel <= 80;
   }, [sensors]);
 
   const [registerModalVisible, setRegisterModalVisible] = React.useState(false);
@@ -407,20 +407,18 @@ export default function DashboardScreen({ navigation }: any) {
         statusColor = '#FF9F0A';
       }
     } else if (title === 'Light') {
-      // Range: 0 to 2000
-      const min = 0;
-      const max = 2000;
-      percent = ((numVal - min) / (max - min)) * 100;
+      // Range: 0 to 100
+      percent = numVal;
       percent = Math.max(0, Math.min(100, percent));
       zones = [
-        { label: 'Low', color: '#FF9F0A', flex: 200 },
-        { label: 'Ideal', color: '#34C759', flex: 1000 },
-        { label: 'Bright', color: '#FFD60A', flex: 800 },
+        { label: 'Low', color: '#FF9F0A', flex: 30 },
+        { label: 'Ideal', color: '#34C759', flex: 50 },
+        { label: 'Bright', color: '#FFD60A', flex: 20 },
       ];
-      if (numVal < 200) {
+      if (numVal < 30) {
         statusText = "LOW LIGHT";
         statusColor = '#FF9F0A';
-      } else if (numVal > 1200) {
+      } else if (numVal > 80) {
         statusText = "TOO BRIGHT";
         statusColor = '#FFD60A';
       }
@@ -460,8 +458,8 @@ export default function DashboardScreen({ navigation }: any) {
       if (numVal < 40) desc = "Dry Air: Air humidity is low. Consider misting or placing a humidifier nearby.";
       else desc = "Healthy Humidity: The ambient moisture is excellent.";
     } else if (title === 'Light') {
-      if (numVal < 200) desc = "Low Light: Light intensity is low. Enable the Grow Light to assist photosynthesis.";
-      else if (numVal > 1200) desc = "Too Bright: Plant is receiving intense light. Protect it from direct midday sun.";
+      if (numVal < 30) desc = "Low Light: Light intensity is low. Enable the Grow Light to assist photosynthesis.";
+      else if (numVal > 80) desc = "Too Bright: Plant is receiving intense light. Protect it from direct midday sun.";
       else desc = "Optimal Light: The current light level is perfect for growth.";
     } else if (title === 'Soil Moisture') {
       if (numVal < 30) desc = "Dry Soil: Soil moisture is critically low. Activate the Water Pump immediately!";
@@ -638,7 +636,7 @@ export default function DashboardScreen({ navigation }: any) {
             <SensorCard 
               title="Light" 
               value={sensors ? sensors.lightLevel : '--'} 
-              unit=" lux" 
+              unit="%" 
               icon="white-balance-sunny" 
               color={colors.warning} 
               colors={colors} 

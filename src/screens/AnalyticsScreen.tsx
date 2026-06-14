@@ -334,7 +334,7 @@ export default function AnalyticsScreen() {
 
       <SensorChart title={`Temperature (°C) - Last 10 ${timeUnit}`} labels={chartData.chartLabels} data={chartData.finalTemps} color={colors.warning} colors={colors} isDark={isDark} />
       <SensorChart title={`Humidity (%) - Last 10 ${timeUnit}`} labels={chartData.chartLabels} data={chartData.finalHums} color={colors.secondary} colors={colors} isDark={isDark} />
-      <SensorChart title={`Light Level (lux) - Last 10 ${timeUnit}`} labels={chartData.chartLabels} data={chartData.finalLights} color={colors.warning} colors={colors} isDark={isDark} />
+      <SensorChart title={`Light Level (%) - Last 10 ${timeUnit}`} labels={chartData.chartLabels} data={chartData.finalLights} color={colors.warning} colors={colors} isDark={isDark} />
       <SensorChart title={`Soil Moisture (%) - Last 10 ${timeUnit}`} labels={chartData.chartLabels} data={chartData.finalSoils} color={colors.primary} colors={colors} isDark={isDark} />
     </ScrollView>
   );
