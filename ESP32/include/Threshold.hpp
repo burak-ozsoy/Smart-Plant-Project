@@ -11,7 +11,7 @@ private:
         // Each array stores min and max values respectively.
         const float tempVals[2] = {18.0f , 30.0f};           
         const float humidityVals[2] = {40.0f , 70.0f};           
-        const uint8_t soilMoistureVals[2] = {30 , 70};   
+        const uint8_t soilMoistureVals[2] = {35 , 70};   
         const uint8_t lightVals[2] = {30 , 80};                
     };
     PlantThresholds* thres = nullptr;

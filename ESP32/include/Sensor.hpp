@@ -58,14 +58,15 @@ private:
     struct ADC {
         adc_oneshot_unit_handle_t handle = nullptr;
         // Soil moisture calibration (raw ADC values)
-        static constexpr int32_t SOIL_DRY     = 4095;
-        static constexpr int32_t SOIL_WET     = 2450;
+        static constexpr int32_t SOIL_DRY = 4095;
+        static constexpr int32_t SOIL_WET = 800;
         // Light sensor (LDR) calibration: dark = high ADC, bright = low ADC
-        static constexpr int32_t LIGHT_DARK   = 2500;
-        static constexpr int32_t LIGHT_BRIGHT = 450;
-        static constexpr int32_t ADC_SAMPLES  = 8;
+        static constexpr int32_t LIGHT_DARK = 3950;
+        static constexpr int32_t LIGHT_BRIGHT = 400;
+        static constexpr int32_t ADC_SAMPLES = 8;
         ADC(adc_channel_t ch1, adc_channel_t ch2);
         int32_t read_percent(adc_channel_t channel);
+        int32_t read_raw(adc_channel_t channel);
         ~ADC(){ if(handle != nullptr) adc_oneshot_del_unit(handle); }
     };
     ADC* adc = nullptr;
