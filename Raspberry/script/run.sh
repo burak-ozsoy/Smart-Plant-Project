@@ -56,13 +56,39 @@ if ! command -v pip3 >/dev/null 2>&1; then
     echo -e "${YELLOW}WARNING:${RESET} pip3 not found - installing 'python3-pip' package"
     sudo_command apt-get install -y python3-pip
 fi
+if ! dpkg -s python3-opencv >/dev/null 2>&1; then
+    apt_get_upd
+    echo -e "${YELLOW}WARNING:${RESET} python3-opencv not found - installing 'python3-opencv' package"
+    sudo_command apt-get install -y python3-opencv
+fi
+if ! dpkg -s python3-picamera2 >/dev/null 2>&1; then
+    apt_get_upd
+    echo -e "${YELLOW}WARNING:${RESET} python3-picamera2 not found - installing 'python3-picamera2' package"
+    sudo_command apt-get install -y python3-picamera2
+fi
 if ! systemctl status mosquitto >/dev/null 2>&1; then
     apt_get_upd
     echo -e "${YELLOW}WARNING:${RESET} Mosquitto broker is not installed - installing 'mosquitto' package"
     sudo_command apt-get install -y mosquitto
 fi
+if ! command -v tailscale >/dev/null 2>&1; then
+    apt_get_upd
+    echo -e "${YELLOW}WARNING:${RESET} tailscale not found - installing..."
+    curl -fsSL https://tailscale.com/install.sh | sh
+    echo -e "${GREEN}SUCCESS:${RESET} tailscale installed"
+fi
+local_ip=$(hostname -I | awk '{print $1}')
+subnet=$(echo "$local_ip" | awk -F. '{print $1"."$2"."$3".0/24"}')
+if [ -n "$subnet" ]; then
+    echo -e "${BLUE}NOTE:${RESET} Detected local subnet: ${subnet}"
+    sudo_command tailscale up --advertise-routes="$subnet" 2>/dev/null || \
+        echo -e "${YELLOW}WARNING:${RESET} tailscale up failed!"
+    echo -e "${BLUE}NOTE:${RESET} Approve the route at https://login.tailscale.com/admin/routes"
+else
+    echo -e "${RED}ERROR:${RESET} Could not detect local subnet, skipping tailscale route advertisement"
+fi
 
-libraries=(firebase-auth paho-mqtt websockets opencv-python python-dotenv google-cloud-firestore)
+libraries=(firebase-auth paho-mqtt websockets fastapi uvicorn python-dotenv google-cloud-firestore)
 for lib in "${libraries[@]}"; do
     if ! python3 -m pip show "$lib" >/dev/null 2>&1; then
         echo -e "${YELLOW}WARNING:${RESET} $lib is not installed - installing..."
@@ -111,6 +137,8 @@ check_and_open_port() {
 }
 
 check_and_open_port 1883 "MQTT"
+check_and_open_port 8766 "Actuator WebSocket"
+check_and_open_port 8000 "Camera WebSocket/API"
 
 sudo_command systemctl enable mosquitto
 sudo_command systemctl start mosquitto
@@ -179,5 +207,40 @@ fi
 sudo chmod 700 "$dir"/*
 echo -e "${BLUE}NOTE:${RESET}: Setting CPU Core 0 to run mqtt_broker.py"
 echo -e "${BLUE}NOTE:${RESET}: Setting CPU Core 1 , 2 and 3 to run camera.py"
+
+# Kill old instances so websocket ports don't remain occupied between runs.
+old_pids=$(pgrep -f "python3 $dir/MQTT/mqtt_broker.py")
+if [ -n "$old_pids" ]; then
+    echo -e "${YELLOW}WARNING:${RESET} Found old mqtt_broker.py instance(s). Stopping..."
+    kill $old_pids >/dev/null 2>&1
+    sleep 1
+fi
+
+child_pids=()
+cleanup_started=false
+
+cleanup() {
+    if [ "$cleanup_started" = true ]; then
+        return
+    fi
+    cleanup_started=true
+
+    echo -e "\n${BLUE}NOTE:${RESET} Stopping child process(es)..."
+    for pid in "${child_pids[@]}"; do
+        if kill -0 "$pid" >/dev/null 2>&1; then
+            kill "$pid" >/dev/null 2>&1
+        fi
+    done
+    wait >/dev/null 2>&1
+}
+
+trap cleanup INT TERM EXIT
+
 taskset -c 0 env PYTHONPATH=$(dirname "$dir") python3 "$dir/MQTT/mqtt_broker.py" &
-#taskset -c 1,2,3 env PYTHONPATH=$(dirname "$dir") python3 "$dir/camera/camera.py" &
+child_pids+=("$!")
+
+taskset -c 1,2,3 env PYTHONPATH=$(dirname "$dir") python3 "$dir/camera/camera.py" &
+child_pids+=("$!")
+
+echo -e "${GREEN}SUCCESS:${RESET} Services started. Press Ctrl+C to stop."
+wait "${child_pids[@]}"
