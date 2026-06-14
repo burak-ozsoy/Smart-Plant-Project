@@ -1,0 +1,4 @@
+node_modules/
+.env
+.expo/
+main_clone/
