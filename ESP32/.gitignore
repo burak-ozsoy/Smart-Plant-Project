@@ -5,3 +5,4 @@
 .vscode/ipch
 .env
 sdkconfig.esp32dev
+.DS_Store
