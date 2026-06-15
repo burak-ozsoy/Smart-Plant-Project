@@ -77,12 +77,31 @@ if ! command -v tailscale >/dev/null 2>&1; then
     curl -fsSL https://tailscale.com/install.sh | sh
     echo -e "${GREEN}SUCCESS:${RESET} tailscale installed"
 fi
+# Enable IP forwarding (required for subnet routing)
+if ! grep -q "net.ipv4.ip_forward = 1" /etc/sysctl.conf 2>/dev/null; then
+    echo -e "${BLUE}NOTE:${RESET} Enabling IPv4 forwarding..."
+    echo 'net.ipv4.ip_forward = 1' | sudo_command tee -a /etc/sysctl.conf >/dev/null
+    echo 'net.ipv6.conf.all.forwarding = 1' | sudo_command tee -a /etc/sysctl.conf >/dev/null
+    echo -e "${GREEN}SUCCESS:${RESET} IP forwarding written to sysctl.conf"
+else
+    echo -e "${GREEN}SUCCESS:${RESET} IP forwarding already in sysctl.conf"
+fi
+sudo_command sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1
+sudo_command sysctl -w net.ipv6.conf.all.forwarding=1 >/dev/null 2>&1
+echo -e "${GREEN}SUCCESS:${RESET} IP forwarding applied"
+
+# Fix UDP GRO forwarding on active interface
+iface=$(ip route | awk '/default/ {print $5; exit}')
+if [ -n "$iface" ] && command -v ethtool >/dev/null 2>&1; then
+    sudo_command ethtool -K "$iface" rx-udp-gro-forwarding on >/dev/null 2>&1
+    echo -e "${GREEN}SUCCESS:${RESET} UDP GRO forwarding enabled on ${iface}"
+fi
 local_ip=$(hostname -I | awk '{print $1}')
 subnet=$(echo "$local_ip" | awk -F. '{print $1"."$2"."$3".0/24"}')
 if [ -n "$subnet" ]; then
     echo -e "${BLUE}NOTE:${RESET} Detected local subnet: ${subnet}"
-    sudo_command tailscale up --advertise-routes="$subnet" 2>/dev/null || \
-        echo -e "${YELLOW}WARNING:${RESET} tailscale up failed!"
+    echo "$SUDO_PASS" | sudo -S tailscale up --advertise-routes="$subnet" || \
+        echo -e "${YELLOW}WARNING:${RESET} tailscale up failed (may need manual login: 'sudo tailscale up')"
     echo -e "${BLUE}NOTE:${RESET} Approve the route at https://login.tailscale.com/admin/routes"
 else
     echo -e "${RED}ERROR:${RESET} Could not detect local subnet, skipping tailscale route advertisement"
