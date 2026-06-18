@@ -117,47 +117,29 @@ for lib in "${libraries[@]}"; do
     fi
 done
 
-check_and_open_port() {
-    local port=$1
-    local label=$2
-
-    if ss -tuln | grep -q ":$port "; then
-        echo -e "${GREEN}SUCCESS:${RESET} Port-${port} for ${label} is already active"
+check_mqtt_port() {
+    if ss -tuln | grep -q ":1883 "; then
+        echo -e "${GREEN}SUCCESS:${RESET} Port-1883 for MQTT is already active"
     else
-        echo -e "${YELLOW}WARNING:${RESET} Port-${port} for ${label} is not active - attempting to open..."
-
-        if command -v ufw >/dev/null 2>&1; then
-            if sudo_command ufw status | grep -q "Status: active"; then
-                sudo_command ufw allow $port
-                echo -e "${GREEN}SUCCESS:${RESET} Port-${port} for ${label} allowed via ufw"
-            fi
-        else
-            echo -e "${YELLOW}WARNING:${RESET} ufw not found, skipping firewall rule"
-        fi 
-
-        if [ "$port" = "1883" ]; then
-            MOSQ_CONF="/etc/mosquitto/mosquitto.conf"
-            if ! grep -q "listener 1883 0.0.0.0" "$MOSQ_CONF" 2>/dev/null; then
-                sudo_command sed -i '/^listener 1883/d' "$MOSQ_CONF" 2>/dev/null
-                sudo_command bash -c "echo 'listener 1883 0.0.0.0' >> $MOSQ_CONF"
-                sudo_command bash -c "echo 'allow_anonymous true' >> $MOSQ_CONF"
-                echo -e "${BLUE}NOTE:${RESET} Added listener 1883 0.0.0.0 to mosquitto.conf"
-            fi
-            sudo_command systemctl restart mosquitto
-            sleep 1
+        echo -e "${YELLOW}WARNING:${RESET} Port-1883 for MQTT is not active - configuring mosquitto..."
+        MOSQ_CONF="/etc/mosquitto/mosquitto.conf"
+        if ! grep -q "listener 1883 0.0.0.0" "$MOSQ_CONF" 2>/dev/null; then
+            sudo_command sed -i '/^listener 1883/d' "$MOSQ_CONF" 2>/dev/null
+            sudo_command bash -c "echo 'listener 1883 0.0.0.0' >> $MOSQ_CONF"
+            sudo_command bash -c "echo 'allow_anonymous true' >> $MOSQ_CONF"
+            echo -e "${BLUE}NOTE:${RESET} Added listener 1883 0.0.0.0 to mosquitto.conf"
         fi
-
-        if ss -tuln | grep -q ":$port "; then
-            echo -e "${GREEN}SUCCESS:${RESET} Port-${port} for ${label} is now active"
+        sudo_command systemctl restart mosquitto
+        sleep 1
+        if ss -tuln | grep -q ":1883 "; then
+            echo -e "${GREEN}SUCCESS:${RESET} Port-1883 for MQTT is now active"
         else
-            echo -e "${RED}ERROR:${RESET} Port-${port} for ${label} could not be activated"
+            echo -e "${RED}ERROR:${RESET} Port-1883 for MQTT could not be activated"
         fi
     fi
 }
 
-check_and_open_port 1883 "MQTT"
-check_and_open_port 8766 "Actuator WebSocket"
-check_and_open_port 8000 "Camera WebSocket/API"
+check_mqtt_port
 
 sudo_command systemctl enable mosquitto
 sudo_command systemctl start mosquitto
