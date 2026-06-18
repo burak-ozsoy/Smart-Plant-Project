@@ -1,17 +1,17 @@
 # 🌱 Smart Plant Mobile App
 
-## 🛠️ Gereksinimler (Prerequisites)
-- **Node.js** (v18 veya daha yeni bir sürüm)
-- **Expo Go** (Uygulamayı fiziksel bir telefonda test etmek için)
+## 🛠️ Prerequisites
+- **Node.js** (v18 or newer)
+- **Expo Go** (to test on a physical device)
 
-## 📦 Kurulum (Installation)
-Gerekli paketleri/kütüphaneleri yüklemek için proje dizininde şu komutu çalıştırın:
+## 📦 Installation
+Install the required packages in the project directory:
 ```bash
 npm install
 ```
 
-## ⚙️ Yapılandırma (Configuration)
-Projenin kök (root) dizininde `.env` isimli bir dosya oluşturun ve Firebase kimlik bilgilerinizi tanımlayın:
+## ⚙️ Configuration
+Create a `.env` file in the root directory and define your Firebase credentials:
 ```env
 EXPO_PUBLIC_FIREBASE_API_KEY=your_api_key
 EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN=your_auth_domain
@@ -21,12 +21,19 @@ EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=your_messaging_sender_id
 EXPO_PUBLIC_FIREBASE_APP_ID=your_app_id
 ```
 
-## 🚀 Başlatma (Running)
-Uygulamayı yerel geliştirme sunucusunda başlatmak için:
+## 🚀 Running
+
+**If your phone and computer are on the same network (Wi-Fi):**
 ```bash
 npx expo start
 ```
-Açılan menüde:
-- **`a`** tuşuna basarak Android emülatöründe,
-- **`i`** tuşuna basarak iOS simülatöründe çalıştırabilir,
-- Veya telefonunuzun kamerası (iOS) ya da **Expo Go** uygulaması (Android) ile QR kodu okutarak uygulamayı telefonunuzda canlı olarak test edebilirsiniz.
+
+**If you are on a different network (e.g. Tailscale):**
+```bash
+npx expo start --tunnel
+```
+
+In the menu that opens:
+- Press **`a`** to run on an Android emulator
+- Press **`i`** to run on an iOS simulator
+- Scan the QR code with your phone's camera (iOS) or the **Expo Go** app (Android) to test on a physical device
