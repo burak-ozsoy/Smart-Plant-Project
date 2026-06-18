@@ -13,7 +13,7 @@ import LeafLoader from '../components/LeafLoader';
 
 export default function CameraScreen() {
   const { colors, isDark } = useThemeColors();
-  const { deviceId, ipAddress } = useFirebase();
+  const { deviceId, ipAddress, tailscaleIp } = useFirebase();
   const isFocused = useIsFocused();
 
   const [frame, setFrame] = useState<string | null>(null);
@@ -95,24 +95,36 @@ export default function CameraScreen() {
       return;
     }
 
+    const ipsToTry = [ipAddress, tailscaleIp].filter((ip): ip is string => !!ip);
     let isComponentActive = true;
-    const wsUrl = `ws://${ipAddress}:8000/ws/camera`;
+    let currentIpIndex = 0;
+    let connectTimeoutId: any = null;
 
     const connectCameraWs = () => {
       if (!isComponentActive) return;
 
-      console.log(`🔌 [CameraWS] Connecting to ${wsUrl}...`);
+      const ip = ipsToTry[currentIpIndex];
+      const wsUrl = `ws://${ip}:8000/ws/camera`;
+      console.log(`🔌 [CameraWS] Connecting to ${wsUrl} (index ${currentIpIndex})...`);
       setIsConnecting(true);
 
       const ws = new WebSocket(wsUrl);
       ws.binaryType = 'blob';
       wsRef.current = ws;
+      let opened = false;
+
+      // Force-close if no connection within 3s (silent packet drop on non-local network)
+      connectTimeoutId = setTimeout(() => {
+        if (!opened && ws.readyState !== WebSocket.OPEN) {
+          console.log(`⏱ [CameraWS] Timeout → ${wsUrl}, trying next IP`);
+          ws.close();
+        }
+      }, 3000);
 
       ws.onopen = () => {
-        if (!isComponentActive) {
-          ws.close();
-          return;
-        }
+        if (!isComponentActive) { ws.close(); return; }
+        clearTimeout(connectTimeoutId);
+        opened = true;
         console.log(`✅ [CameraWS] Connection established to ${wsUrl}`);
         setIsConnected(true);
         setIsConnecting(false);
@@ -120,9 +132,6 @@ export default function CameraScreen() {
 
       ws.onmessage = (event) => {
         if (!isComponentActive) return;
-
-        // FastAPI server streams binary bytes (raw JPEG data).
-        // Convert the Blob to a Data URL (base64) so <Image /> can render it.
         try {
           const blob = event.data;
           const reader = new FileReader();
@@ -131,9 +140,7 @@ export default function CameraScreen() {
             const dataUrl = typeof reader.result === 'string'
               ? reader.result.replace('data:application/octet-stream;', 'data:image/jpeg;')
               : null;
-            if (dataUrl) {
-              setFrame(dataUrl);
-            }
+            if (dataUrl) setFrame(dataUrl);
           };
           reader.readAsDataURL(blob);
         } catch (err) {
@@ -142,17 +149,24 @@ export default function CameraScreen() {
       };
 
       ws.onclose = (e) => {
+        clearTimeout(connectTimeoutId);
         if (!isComponentActive) return;
-        console.log(`🔌 [CameraWS] Connection closed for ${wsUrl}. Reconnecting in 5 seconds...`, e.reason);
+        console.log(`🔌 [CameraWS] Closed ${wsUrl} | opened: ${opened}`);
         setIsConnected(false);
         setFrame(null);
         wsRef.current = null;
-        reconnectTimeoutRef.current = setTimeout(connectCameraWs, 5000);
+        if (!opened && ipsToTry.length > 1) {
+          currentIpIndex = (currentIpIndex + 1) % ipsToTry.length;
+          const delay = currentIpIndex === 0 ? 5000 : 500;
+          reconnectTimeoutRef.current = setTimeout(connectCameraWs, delay);
+        } else {
+          reconnectTimeoutRef.current = setTimeout(connectCameraWs, 5000);
+        }
       };
 
       ws.onerror = (err) => {
         if (!isComponentActive) return;
-        console.log(`❌ [CameraWS] Connection error for ${wsUrl}:`, err);
+        console.log(`❌ [CameraWS] Error for ${wsUrl}:`, err);
         ws.close();
       };
     };
@@ -161,6 +175,7 @@ export default function CameraScreen() {
 
     return () => {
       isComponentActive = false;
+      clearTimeout(connectTimeoutId);
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;
@@ -170,7 +185,7 @@ export default function CameraScreen() {
         reconnectTimeoutRef.current = null;
       }
     };
-  }, [deviceId, ipAddress, isFocused]);
+  }, [deviceId, ipAddress, tailscaleIp, isFocused]);
 
   if (!deviceId) {
     return (

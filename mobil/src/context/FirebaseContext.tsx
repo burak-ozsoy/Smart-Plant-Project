@@ -24,6 +24,7 @@ interface FirebaseContextType {
   userDoc: { name: string; email: string } | null;
   deviceId: string | null;
   ipAddress: string | null;
+  tailscaleIp: string | null;
   devicesList: { macAddress: string; deviceName: string }[];
   sensors: SensorData | null;
   controls: ControlData | null;
@@ -47,6 +48,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [userDoc, setUserDoc] = useState<{ name: string; email: string } | null>(null);
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [ipAddress, setIpAddress] = useState<string | null>(null);
+  const [tailscaleIp, setTailscaleIp] = useState<string | null>(null);
   const [devicesList, setDevicesList] = useState<{ macAddress: string; deviceName: string }[]>([]);
   const [sensors, setSensors] = useState<SensorData | null>(null);
   const [controls, setControls] = useState<ControlData | null>(null);
@@ -65,6 +67,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         setUserDoc(null);
         setDeviceId(null);
         setIpAddress(null);
+        setTailscaleIp(null);
         setDevicesList([]);
         setSensors(null);
         setControls(null);
@@ -177,6 +180,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setControls(null);
     setHistoricalData([]);
     setIpAddress(null);
+    setTailscaleIp(null);
 
     const docRef = doc(db, 'devices', deviceId);
 
@@ -185,6 +189,8 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         const data = docSnap.data();
         const ip = data.ipAddress || data.ipadress || data.ipaddress || null;
         setIpAddress(ip);
+        const tsIp = data.tailscaleIp || null;
+        setTailscaleIp(tsIp);
         const lr = data.latestReading || {};
         
         // Helper to resolve sensor values with robust key fallbacks (checking both latestReading and root)
@@ -350,8 +356,8 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   // 5. Persistent Two-Way WebSocket Connection
   useEffect(() => {
-    if (!ipAddress) {
-      // Cleanup if IP address is removed
+    const ipsToTry = [ipAddress, tailscaleIp].filter((ip): ip is string => !!ip);
+    if (ipsToTry.length === 0) {
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;
@@ -364,23 +370,32 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
 
     let isComponentActive = true;
-    const wsUrl = `ws://${ipAddress}:8766`;
+    let currentIpIndex = 0;
+    let connectTimeoutRef: any = null;
 
     const connectWebSocket = () => {
       if (!isComponentActive) return;
 
-      console.log(`🔌 [WebSocket] Connecting to ${wsUrl}...`);
+      const ip = ipsToTry[currentIpIndex];
+      const wsUrl = `ws://${ip}:8766`;
+      console.log(`🔌 [WebSocket] Connecting to ${wsUrl} (index ${currentIpIndex})...`);
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
+      let opened = false;
+
+      // Force-close if no connection within 3s (silent packet drop on non-local network)
+      connectTimeoutRef = setTimeout(() => {
+        if (!opened && ws.readyState !== WebSocket.OPEN) {
+          console.log(`⏱ [WebSocket] Timeout → ${wsUrl}, trying next IP`);
+          ws.close();
+        }
+      }, 3000);
 
       ws.onopen = () => {
-        if (!isComponentActive) {
-          ws.close();
-          return;
-        }
+        if (!isComponentActive) { ws.close(); return; }
+        clearTimeout(connectTimeoutRef);
+        opened = true;
         console.log(`✅ [WebSocket] Connection established to ${wsUrl}`);
-        console.log("baglantı gerceklestirildi");
-        console.log("baglantı getceklestirildi");
       };
 
       ws.onmessage = (event) => {
@@ -389,8 +404,6 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           console.log(`📥 [WebSocket] Message received:`, event.data);
           const data = JSON.parse(event.data);
           const source = data.payload || data;
-          
-          // Only update if actuator properties exist in the message to avoid resetting state on empty heartbeats
           if (source.pumpOn !== undefined || source.growLightOn !== undefined || source.fanOn !== undefined) {
             setControls(prev => ({
               pumpOn: source.pumpOn !== undefined ? !!source.pumpOn : (prev?.pumpOn ?? false),
@@ -405,15 +418,22 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       };
 
       ws.onclose = (e) => {
+        clearTimeout(connectTimeoutRef);
         if (!isComponentActive) return;
-        console.log(`🔌 [WebSocket] Connection closed for ${wsUrl}. Reconnecting in 5 seconds...`, e.reason);
+        console.log(`🔌 [WebSocket] Closed ${wsUrl} | opened: ${opened}`);
         wsRef.current = null;
-        reconnectTimeoutRef.current = setTimeout(connectWebSocket, 5000);
+        if (!opened && ipsToTry.length > 1) {
+          currentIpIndex = (currentIpIndex + 1) % ipsToTry.length;
+          const delay = currentIpIndex === 0 ? 5000 : 500;
+          reconnectTimeoutRef.current = setTimeout(connectWebSocket, delay);
+        } else {
+          reconnectTimeoutRef.current = setTimeout(connectWebSocket, 5000);
+        }
       };
 
       ws.onerror = (err) => {
         if (!isComponentActive) return;
-        console.log(`❌ [WebSocket] Connection error for ${wsUrl}:`, err);
+        console.log(`❌ [WebSocket] Error for ${wsUrl}:`, err);
         ws.close();
       };
     };
@@ -422,6 +442,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     return () => {
       isComponentActive = false;
+      clearTimeout(connectTimeoutRef);
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;
@@ -431,7 +452,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         reconnectTimeoutRef.current = null;
       }
     };
-  }, [ipAddress]);
+  }, [ipAddress, tailscaleIp]);
 
   // Login Method
   const login = useCallback(async (email: string, password: string) => {
@@ -633,50 +654,53 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const updateControl = useCallback(async (key: keyof ControlData, value: boolean) => {
     if (!deviceId) return;
 
-    // 1. Calculate the next control state incorporating the toggled value
     const newControls = {
       pumpOn: key === 'pumpOn' ? value : (controls?.pumpOn ?? false),
       growLightOn: key === 'growLightOn' ? value : (controls?.growLightOn ?? false),
       fanOn: key === 'fanOn' ? value : (controls?.fanOn ?? false),
     };
 
-    // 2. Connect and send via WebSocket if ipAddress is available (Firestore DB is ignored/skipped)
-    if (ipAddress) {
-      const payload = {
-        topic: `actuator_data/${ipAddress}`,
-        payload: newControls,
-        ...newControls
-      };
+    // MQTT topic always uses local IP (ESP32 subscribes to actuator_data/<localIp>)
+    const mqttTopicIp = ipAddress;
+    // WebSocket connection prefers active persistent socket's IP (may be tailscale)
+    const wsConnectIp = tailscaleIp || ipAddress;
 
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        try {
-          wsRef.current.send(JSON.stringify(payload));
-          console.log(`✅ WebSocket control sent successfully via persistent socket to ws://${ipAddress}:8766`);
-          setControls(newControls);
-        } catch (wsErr) {
-          console.warn(`❌ Failed to send via persistent WebSocket:`, wsErr);
-        }
-      } else {
-        // Fallback: socket is closed or reconnecting, open a quick temp one to send this command
-        const wsUrl = `ws://${ipAddress}:8766`;
-        console.warn(`⚠️ Persistent WebSocket not open (readyState: ${wsRef.current ? wsRef.current.readyState : 'null'}). Using fallback connection...`);
-        try {
-          const tempWs = new WebSocket(wsUrl);
-          tempWs.onopen = () => {
-            tempWs.send(JSON.stringify(payload));
-            tempWs.close();
-            console.log(`✅ WebSocket control sent successfully via fallback temp connection`);
-            setControls(newControls);
-          };
-          tempWs.onerror = (err) => {
-            console.warn(`❌ Fallback WebSocket connection failed:`, err);
-          };
-        } catch (fallbackErr) {
-          console.warn(`❌ Fallback WebSocket trigger failed:`, fallbackErr);
-        }
+    if (!mqttTopicIp || !wsConnectIp) {
+      console.warn(`⚠️ WebSocket command not sent: No IP address available for device ${deviceId}`);
+      return;
+    }
+
+    const payload = {
+      topic: `actuator_data/${mqttTopicIp}`,
+      payload: newControls,
+      ...newControls
+    };
+
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      try {
+        wsRef.current.send(JSON.stringify(payload));
+        console.log(`✅ WebSocket control sent via persistent socket`);
+        setControls(newControls);
+      } catch (wsErr) {
+        console.warn(`❌ Failed to send via persistent WebSocket:`, wsErr);
       }
     } else {
-      console.warn(`⚠️ WebSocket command not sent: No IP address available for device ${deviceId}`);
+      const wsUrl = `ws://${wsConnectIp}:8766`;
+      console.warn(`⚠️ Persistent WebSocket not open. Using fallback connection to ${wsUrl}...`);
+      try {
+        const tempWs = new WebSocket(wsUrl);
+        tempWs.onopen = () => {
+          tempWs.send(JSON.stringify(payload));
+          tempWs.close();
+          console.log(`✅ WebSocket control sent via fallback temp connection`);
+          setControls(newControls);
+        };
+        tempWs.onerror = (err) => {
+          console.warn(`❌ Fallback WebSocket connection failed:`, err);
+        };
+      } catch (fallbackErr) {
+        console.warn(`❌ Fallback WebSocket trigger failed:`, fallbackErr);
+      }
     }
   }, [deviceId, ipAddress, controls]);
 
@@ -685,6 +709,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     userDoc,
     deviceId,
     ipAddress,
+    tailscaleIp,
     devicesList,
     sensors,
     controls,
@@ -704,6 +729,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     userDoc,
     deviceId,
     ipAddress,
+    tailscaleIp,
     devicesList,
     sensors,
     controls,
