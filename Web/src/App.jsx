@@ -38,6 +38,7 @@ export default function App() {
   const [deviceMac, setDeviceMac] = useState("");
   const [selectedDevice, setSelectedDevice] = useState("");
   const [deviceIp, setDeviceIp] = useState("");
+  const [tailscaleIp, setTailscaleIp] = useState("");
 
   const [deviceMessage, setDeviceMessage] = useState("");
   const [isDeviceSuccess, setIsDeviceSuccess] = useState(false);
@@ -58,6 +59,7 @@ export default function App() {
 
   const [fanOn, setFanOn] = useState(false);
   const [lightsOn, setLightsOn] = useState(false);
+  const [pumpOn, setPumpOn] = useState(false);
 
   const [fanCooldown, setFanCooldown] = useState(false);
   const [lightsCooldown, setLightsCooldown] = useState(false);
@@ -92,8 +94,10 @@ export default function App() {
         light: latest?.lightLevel ?? "--",
       });
       setDeviceIp(data?.ipAddress ?? "");
+      setTailscaleIp(data?.tailscaleIp ?? "");
       setFanOn(actuator?.fanOn ?? false);
       setLightsOn(actuator?.growLightOn ?? false);
+      setPumpOn(actuator?.pumpOn ?? false);
     } else {
     setSensorValues({
     temperature: "--",
@@ -104,7 +108,9 @@ export default function App() {
 
   setFanOn(false);
   setLightsOn(false);
+  setPumpOn(false);
   setDeviceIp("");
+  setTailscaleIp("");
 }
   });
 
@@ -178,17 +184,14 @@ export default function App() {
       setCameraStatus("idle");
       return;
     }
-    const resolvedDeviceIp = String(deviceIp || "").trim();
-    if (!resolvedDeviceIp) {
-      if (actuatorSocketRef.current && actuatorSocketRef.current.readyState < 2) {
-        actuatorSocketRef.current.close();
-      }
-      actuatorSocketRef.current = null;
+    const ipsToTry = [String(deviceIp || "").trim(), String(tailscaleIp || "").trim()].filter(Boolean);
+    if (ipsToTry.length === 0) {
       return;
     }
-    const wsUrl = `ws://${resolvedDeviceIp}:8000/ws/camera`;
+    let currentIpIndex = 0;
     let socket;
     let reconnectTimer;
+    let connectTimeoutTimer;
     let isActive = true;
     let frameObjectUrl = "";
 
@@ -201,28 +204,42 @@ export default function App() {
 
     const connect = () => {
       if (!isActive) return;
-
+      const ip = ipsToTry[currentIpIndex];
       setCameraStatus("connecting");
-      socket = new WebSocket(wsUrl);
+      socket = new WebSocket(`ws://${ip}:8000/ws/camera`);
       socket.binaryType = "arraybuffer";
+      let opened = false;
+
+      connectTimeoutTimer = globalThis.setTimeout(() => {
+        if (!opened && socket.readyState !== WebSocket.OPEN) {
+          socket.close();
+        }
+      }, 3000);
 
       socket.onopen = () => {
+        opened = true;
+        globalThis.clearTimeout(connectTimeoutTimer);
         setCameraStatus("live");
       };
 
       socket.onmessage = (event) => {
         cleanupFrameUrl();
-
         const blob = new Blob([event.data], { type: "image/jpeg" });
         frameObjectUrl = URL.createObjectURL(blob);
         setCameraFrameUrl(frameObjectUrl);
       };
 
       socket.onclose = () => {
+        globalThis.clearTimeout(connectTimeoutTimer);
         if (!isActive) return;
-
         setCameraStatus("offline");
-        reconnectTimer = window.setTimeout(connect, 2000);
+        if (!opened && ipsToTry.length > 1) {
+          currentIpIndex = (currentIpIndex + 1) % ipsToTry.length;
+          const delay = currentIpIndex === 0 ? 2000 : 500;
+          reconnectTimer = globalThis.setTimeout(connect, delay);
+        } else {
+          reconnectTimer = globalThis.setTimeout(connect, 2000);
+        }
       };
 
       socket.onerror = () => {
@@ -235,15 +252,16 @@ export default function App() {
 
     return () => {
       isActive = false;
+      globalThis.clearTimeout(connectTimeoutTimer);
       if (reconnectTimer) {
-        window.clearTimeout(reconnectTimer);
+        globalThis.clearTimeout(reconnectTimer);
       }
       if (socket && socket.readyState < 2) {
         socket.close();
       }
       cleanupFrameUrl();
     };
-  }, [isLoggedIn , deviceIp]);
+  }, [isLoggedIn, deviceIp, tailscaleIp]);
 
   useEffect(() => {
     if (!isLoggedIn) {
@@ -253,8 +271,8 @@ export default function App() {
       actuatorSocketRef.current = null;
       return;
     }
-    const resolvedDeviceIp = String(deviceIp || "").trim();
-    if (!resolvedDeviceIp) {
+    const actuatorIpsToTry = [String(deviceIp || "").trim(), String(tailscaleIp || "").trim()].filter(Boolean);
+    if (actuatorIpsToTry.length === 0) {
       if (actuatorSocketRef.current && actuatorSocketRef.current.readyState < 2) {
         actuatorSocketRef.current.close();
       }
@@ -262,20 +280,45 @@ export default function App() {
       return;
     }
     const actuatorWsPort = import.meta.env.VITE_ACTUATOR_WS_PORT || "8766";
-    const wsUrl = `ws://${resolvedDeviceIp}:${actuatorWsPort}`;
+    let actuatorIpIndex = 0;
     let socket;
     let reconnectTimer;
+    let connectTimeoutTimer;
     let isActive = true;
 
     const connect = () => {
       if (!isActive) return;
-
-      socket = new WebSocket(wsUrl);
+      const ip = actuatorIpsToTry[actuatorIpIndex];
+      console.log(`[actuator ws] connecting → ws://${ip}:${actuatorWsPort} (index ${actuatorIpIndex})`);
+      socket = new WebSocket(`ws://${ip}:${actuatorWsPort}`);
       actuatorSocketRef.current = socket;
+      let opened = false;
+
+      // If the socket doesn't open within 3s (e.g. silent packet drop), force-close and try next IP
+      connectTimeoutTimer = globalThis.setTimeout(() => {
+        if (!opened && socket.readyState !== WebSocket.OPEN) {
+          console.log(`[actuator ws] TIMEOUT → ws://${ip}:${actuatorWsPort}, trying next IP`);
+          socket.close();
+        }
+      }, 3000);
+
+      socket.onopen = () => {
+        opened = true;
+        globalThis.clearTimeout(connectTimeoutTimer);
+        console.log(`[actuator ws] OPEN → ws://${ip}:${actuatorWsPort}`);
+      };
 
       socket.onclose = () => {
+        globalThis.clearTimeout(connectTimeoutTimer);
         if (!isActive) return;
-        reconnectTimer = window.setTimeout(connect, 2000);
+        console.log(`[actuator ws] CLOSED → ws://${ip}:${actuatorWsPort} | opened:`, opened);
+        if (!opened && actuatorIpsToTry.length > 1) {
+          actuatorIpIndex = (actuatorIpIndex + 1) % actuatorIpsToTry.length;
+          const delay = actuatorIpIndex === 0 ? 2000 : 500;
+          reconnectTimer = globalThis.setTimeout(connect, delay);
+        } else {
+          reconnectTimer = globalThis.setTimeout(connect, 2000);
+        }
       };
 
       socket.onerror = () => {
@@ -287,15 +330,16 @@ export default function App() {
 
     return () => {
       isActive = false;
+      globalThis.clearTimeout(connectTimeoutTimer);
       if (reconnectTimer) {
-        window.clearTimeout(reconnectTimer);
+        globalThis.clearTimeout(reconnectTimer);
       }
       if (socket && socket.readyState < 2) {
         socket.close();
       }
       actuatorSocketRef.current = null;
     };
-  }, [isLoggedIn, deviceIp]);
+  }, [isLoggedIn, deviceIp, tailscaleIp]);
 
   const sendActuatorCommand = (payload) => {
     if (!selectedDevice) {
@@ -311,6 +355,7 @@ export default function App() {
     }
 
     const socket = actuatorSocketRef.current;
+    console.log("[actuator] readyState:", socket ? socket.readyState : "no socket", "| url:", socket?.url ?? "none");
     if (!socket || socket.readyState !== WebSocket.OPEN) {
       setIsDeviceSuccess(false);
       setDeviceMessage("CONTROL: Actuator gateway is offline");
@@ -318,7 +363,8 @@ export default function App() {
     }
 
     const topic = `actuator_data/${String(deviceIp).trim()}`;
-    socket.send(JSON.stringify({ topic, payload }));
+    console.log("[actuator] sending → topic:", topic, "| payload:", payload);
+    socket.send(JSON.stringify({ topic, payload, ...payload }));
     return true;
   };
 
@@ -327,7 +373,7 @@ export default function App() {
 
   const newFanState = !fanOn;
 
-  const sent = sendActuatorCommand({ fanOn: newFanState });
+  const sent = sendActuatorCommand({ pumpOn, growLightOn: lightsOn, fanOn: newFanState });
   if (!sent) return;
 
   setFanOn(newFanState);
@@ -349,7 +395,7 @@ export default function App() {
 
   const newLightState = !lightsOn;
 
-  const sent = sendActuatorCommand({ growLightOn: newLightState });
+  const sent = sendActuatorCommand({ pumpOn, growLightOn: newLightState, fanOn });
   if (!sent) return;
 
   setLightsOn(newLightState);
@@ -369,7 +415,7 @@ export default function App() {
   const handleGiveWater = async () => {
   if (!selectedDevice || watering) return;
 
-  const sent = sendActuatorCommand({ pumpOn: true });
+  const sent = sendActuatorCommand({ pumpOn: true, growLightOn: lightsOn, fanOn });
   if (!sent) return;
 
   setWatering(true);
@@ -381,7 +427,7 @@ export default function App() {
   });
 
   setTimeout(() => {
-    sendActuatorCommand({ pumpOn: false });
+    sendActuatorCommand({ pumpOn: false, growLightOn: lightsOn, fanOn });
     updateDoc(doc(db, "devices", selectedDevice), {
       "actuatorState.pumpOn": false,
     }).catch((error) => {
@@ -518,6 +564,7 @@ export default function App() {
   setSelectedDevice("");
   setDeviceMac("");
   setDeviceIp("");
+  setTailscaleIp("");
   setDeviceMessage("");
   setIsDeviceSuccess(false);
 
