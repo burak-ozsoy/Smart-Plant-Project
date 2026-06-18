@@ -6,6 +6,7 @@ import threading
 import time
 import asyncio
 import socket
+import subprocess
 import websockets
 from dotenv import load_dotenv , find_dotenv
 from uuid import getnode
@@ -19,10 +20,10 @@ class MQTT_Broker:
 
         self.__mac_addr = ':'.join(['{:02X}'.format((getnode() >> ele) & 0xff)
                                 for ele in range(0, 8*6, 8)][::-1])
-        self._raspberry_ip = self._get_local_ip()
-
         self._lock = threading.RLock()
         self.tag = "[mqtt_broker.py]"
+        self._raspberry_ip = self._get_local_ip()
+        self._tailscale_ip = self._get_tailscale_ip()
         self._root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
         os.makedirs(os.path.join(self._root_dir, "json_from_esp32"), exist_ok=True)
@@ -71,6 +72,30 @@ class MQTT_Broker:
         finally:
             sock.close()
 
+    def _get_tailscale_ip(self):
+        try:
+            result = subprocess.run(
+                ["tailscale", "ip", "-4"],
+                capture_output=True, text=True, timeout=3
+            )
+            ip = result.stdout.strip()
+            if ip:
+                return ip
+        except Exception:
+            pass
+        # Fallback: scan for 100.64.x.x – 100.127.x.x (Tailscale CGNAT range)
+        try:
+            for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+                ip = info[4][0]
+                parts = ip.split(".")
+                if len(parts) == 4 and int(parts[0]) == 100 and 64 <= int(parts[1]) <= 127:
+                    print(f"{self.tag}: Tailscale IP detected (fallback): {ip}")
+                    return ip
+        except Exception:
+            pass
+        print(f"{self.tag}: No Tailscale IP found, remote access via Tailscale won't be available")
+        return None
+
     def on_connect(self, client, userdata, flags, rc):
         if rc == 0:
             print(f"{self.tag}: Connected to MQTT broker {self._mqtt_host}:{self._mqtt_port}")
@@ -112,9 +137,15 @@ class MQTT_Broker:
                 if "macAddress" not in parsed:
                     parsed["macAddress"] = self.__mac_addr
 
-                # Keep actuator routing and DB contract stable: always use Raspberry IP.
+                # Refresh IPs each message so network changes (hotspot toggle etc.) are reflected immediately.
+                self._raspberry_ip = self._get_local_ip()
+                ts_ip = self._get_tailscale_ip()
+                if ts_ip:
+                    self._tailscale_ip = ts_ip
                 parsed["ipAddress"] = self._raspberry_ip
                 parsed["gatewayIpAddress"] = self._raspberry_ip
+                if self._tailscale_ip:
+                    parsed["tailscaleIp"] = self._tailscale_ip
                 parsed["received_at"] = time.strftime("%Y-%m-%d - %H-%M-%S")
                 self._sensor_data = parsed
                 self._sensor_buffer.append(parsed.copy())
@@ -161,13 +192,30 @@ class MQTT_Broker:
         result["received_at"] = time.strftime("%Y-%m-%d - %H-%M-%S")
         return result
 
+    def _refresh_ips(self):
+        fresh_local = self._get_local_ip()
+        if fresh_local != self._raspberry_ip:
+            print(f"{self.tag}: Local IP changed: {self._raspberry_ip} → {fresh_local}")
+            self._raspberry_ip = fresh_local
+        fresh_tailscale = self._get_tailscale_ip()
+        if fresh_tailscale != self._tailscale_ip:
+            print(f"{self.tag}: Tailscale IP changed: {self._tailscale_ip} → {fresh_tailscale}")
+            self._tailscale_ip = fresh_tailscale
+
     def _flush_average(self):
+        self._refresh_ips()
+
         with self._lock:
             if not self._sensor_buffer:
                 return
             sample_count = len(self._sensor_buffer)
             averaged = self._calculate_average(self._sensor_buffer)
             self._sensor_buffer.clear()
+
+        averaged["ipAddress"] = self._raspberry_ip
+        averaged["gatewayIpAddress"] = self._raspberry_ip
+        if self._tailscale_ip:
+            averaged["tailscaleIp"] = self._tailscale_ip
 
         try:
             res = self._firebase_client.send_data_to_firebase(averaged, source="esp32")

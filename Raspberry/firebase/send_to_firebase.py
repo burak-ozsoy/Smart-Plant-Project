@@ -55,6 +55,10 @@ class FirebaseClient:
             "lastSeen": ts,
         }
 
+        tailscale_ip = data.get("tailscaleIp") if "tailscaleIp" in data else None
+        if tailscale_ip:
+            updates["tailscaleIp"] = tailscale_ip
+
         if not snapshot.exists:
             updates["createdAt"] = ts
 
