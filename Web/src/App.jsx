@@ -57,9 +57,7 @@ export default function App() {
     light: "--",
   });
 
-  const [fanOn, setFanOn] = useState(false);
-  const [lightsOn, setLightsOn] = useState(false);
-  const [pumpOn, setPumpOn] = useState(false);
+  const [controls, setControls] = useState(null);
 
   const [fanCooldown, setFanCooldown] = useState(false);
   const [lightsCooldown, setLightsCooldown] = useState(false);
@@ -95,9 +93,13 @@ export default function App() {
       });
       setDeviceIp(data?.ipAddress ?? "");
       setTailscaleIp(data?.tailscaleIp ?? "");
-      setFanOn(actuator?.fanOn ?? false);
-      setLightsOn(actuator?.growLightOn ?? false);
-      setPumpOn(actuator?.pumpOn ?? false);
+      // Only initialize controls from Firestore on first load or device switch (controls === null)
+      // After that, manage locally to avoid flicker from Firestore round-trips
+      setControls(prev => prev === null ? {
+        fanOn: actuator?.fanOn ?? false,
+        growLightOn: actuator?.growLightOn ?? false,
+        pumpOn: actuator?.pumpOn ?? false,
+      } : prev);
     } else {
     setSensorValues({
     temperature: "--",
@@ -106,9 +108,7 @@ export default function App() {
     light: "--",
   });
 
-  setFanOn(false);
-  setLightsOn(false);
-  setPumpOn(false);
+  setControls(null);
   setDeviceIp("");
   setTailscaleIp("");
 }
@@ -308,6 +308,22 @@ export default function App() {
         console.log(`[actuator ws] OPEN → ws://${ip}:${actuatorWsPort}`);
       };
 
+      socket.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          const source = data.payload || data;
+          if (source.pumpOn !== undefined || source.growLightOn !== undefined || source.fanOn !== undefined) {
+            setControls(prev => ({
+              pumpOn: source.pumpOn !== undefined ? !!source.pumpOn : (prev?.pumpOn ?? false),
+              growLightOn: source.growLightOn !== undefined ? !!source.growLightOn : (prev?.growLightOn ?? false),
+              fanOn: source.fanOn !== undefined ? !!source.fanOn : (prev?.fanOn ?? false),
+            }));
+          }
+        } catch (e) {
+          // ignore malformed messages
+        }
+      };
+
       socket.onclose = () => {
         globalThis.clearTimeout(connectTimeoutTimer);
         if (!isActive) return;
@@ -371,73 +387,48 @@ export default function App() {
   const handleFanToggle = async () => {
   if (!selectedDevice || fanCooldown) return;
 
-  const newFanState = !fanOn;
+  const newFanState = !(controls?.fanOn ?? false);
+  const newControls = { pumpOn: controls?.pumpOn ?? false, growLightOn: controls?.growLightOn ?? false, fanOn: newFanState };
 
-  const sent = sendActuatorCommand({ pumpOn, growLightOn: lightsOn, fanOn: newFanState });
+  const sent = sendActuatorCommand(newControls);
   if (!sent) return;
 
-  setFanOn(newFanState);
+  setControls(newControls);
   setFanCooldown(true);
-
-  updateDoc(doc(db, "devices", selectedDevice), {
-    "actuatorState.fanOn": newFanState,
-  }).catch((error) => {
-    console.warn("Fan mirror update failed:", error);
-  });
-
-  setTimeout(() => {
-    setFanCooldown(false);
-    }, 2000);
+  setTimeout(() => setFanCooldown(false), 2000);
   };
 
   const handleLightsToggle = async () => {
   if (!selectedDevice || lightsCooldown) return;
 
-  const newLightState = !lightsOn;
+  const newLightState = !(controls?.growLightOn ?? false);
+  const newControls = { pumpOn: controls?.pumpOn ?? false, growLightOn: newLightState, fanOn: controls?.fanOn ?? false };
 
-  const sent = sendActuatorCommand({ pumpOn, growLightOn: newLightState, fanOn });
+  const sent = sendActuatorCommand(newControls);
   if (!sent) return;
 
-  setLightsOn(newLightState);
+  setControls(newControls);
   setLightsCooldown(true);
-
-  updateDoc(doc(db, "devices", selectedDevice), {
-    "actuatorState.growLightOn": newLightState,
-  }).catch((error) => {
-    console.warn("Light mirror update failed:", error);
-  });
-
-  setTimeout(() => {
-    setLightsCooldown(false);
-   }, 2000);
-    };
+  setTimeout(() => setLightsCooldown(false), 2000);
+  };
 
   const handleGiveWater = async () => {
   if (!selectedDevice || watering) return;
 
-  const sent = sendActuatorCommand({ pumpOn: true, growLightOn: lightsOn, fanOn });
+  const newControls = { pumpOn: true, growLightOn: controls?.growLightOn ?? false, fanOn: controls?.fanOn ?? false };
+  const sent = sendActuatorCommand(newControls);
   if (!sent) return;
 
+  setControls(newControls);
   setWatering(true);
 
-  updateDoc(doc(db, "devices", selectedDevice), {
-    "actuatorState.pumpOn": true,
-  }).catch((error) => {
-    console.warn("Pump mirror update failed:", error);
-  });
-
   setTimeout(() => {
-    sendActuatorCommand({ pumpOn: false, growLightOn: lightsOn, fanOn });
-    updateDoc(doc(db, "devices", selectedDevice), {
-      "actuatorState.pumpOn": false,
-    }).catch((error) => {
-      console.warn("Pump mirror update failed:", error);
-    });
+    const offControls = { pumpOn: false, growLightOn: controls?.growLightOn ?? false, fanOn: controls?.fanOn ?? false };
+    sendActuatorCommand(offControls);
+    setControls(offControls);
   }, 5000);
 
-  setTimeout(() => {
-    setWatering(false);
-  }, 7000);
+  setTimeout(() => setWatering(false), 7000);
   };
 
   const handleLogin = async () => {
@@ -565,6 +556,7 @@ export default function App() {
   setDeviceMac("");
   setDeviceIp("");
   setTailscaleIp("");
+  setControls(null);
   setDeviceMessage("");
   setIsDeviceSuccess(false);
 
@@ -999,7 +991,7 @@ export default function App() {
             title="Fan"
             desc="Turn fan on or off"
             icon="🌀"
-            active={fanOn}
+            active={controls?.fanOn ?? false}
             onToggle={handleFanToggle}
             disabled={!selectedDevice || fanCooldown}
             theme={theme}
@@ -1029,7 +1021,7 @@ export default function App() {
             title="Lights"
             desc="Turn lights on or off"
             icon="💡"
-            active={lightsOn}
+            active={controls?.growLightOn ?? false}
             onToggle={handleLightsToggle}
             disabled={!selectedDevice || lightsCooldown}
             theme={theme}
